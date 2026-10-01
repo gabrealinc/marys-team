@@ -74,6 +74,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS for_who TEXT NOT NULL DEFAULT 'Family'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
   await sql`UPDATE team_events SET for_who = 'Stu' WHERE category = 'dad' AND for_who = 'Family'`
+  await sql`UPDATE team_events SET help_needed = 'Spend time with Mary' WHERE for_who = 'Stu' OR help_needed = 'Check in with Mary at home'`
   await sql`
     CREATE TABLE IF NOT EXISTS support_requests (
       id TEXT PRIMARY KEY,
@@ -108,6 +109,7 @@ function isNoSupport(value: string) {
 }
 
 function parseEventInput(item: Partial<TeamEventInput> | undefined) {
+  const forWho = clean(item?.forWho, 30)
   return {
     id: clean(item?.id, 80),
     category: clean(item?.category, 20) as Category,
@@ -118,8 +120,8 @@ function parseEventInput(item: Partial<TeamEventInput> | undefined) {
     title: clean(item?.title, 160),
     details: clean(item?.details, 1000),
     location: clean(item?.location, 300),
-    helpNeeded: clean(item?.helpNeeded, 200),
-    forWho: clean(item?.forWho, 30),
+    helpNeeded: forWho === 'Stu' ? 'Spend time with Mary' : clean(item?.helpNeeded, 200),
+    forWho,
     repeatGroupId: clean(item?.repeatGroupId, 80),
   }
 }

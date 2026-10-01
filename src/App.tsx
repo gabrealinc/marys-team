@@ -27,7 +27,7 @@ const availabilityTimes = [
 ]
 
 const helpChoices = ['Driving or giving a ride', 'Company or a friendly check-in', 'Home projects or errands', 'Bringing a meal', 'Pet care or errands', 'Anything that would be useful']
-const supportChoices = ['Need a ride', 'Check in with Mary at home', 'Support at home or with an errand', 'Help with Coco', 'No help needed']
+const supportChoices = ['Need a ride', 'Spend time with Mary', 'Support at home or with an errand', 'Help with Coco', 'No help needed']
 const whoChoices: ForWho[] = ['Mary', 'Stu', 'Coco', 'Family']
 
 function matchesSupportFilter(event: TeamEvent, filter: SupportFilter) {
@@ -121,7 +121,7 @@ async function apiRequest(body?: unknown) {
 function App() {
   const [teamEvents, setTeamEvents] = useState<TeamEvent[]>([])
   const [filter, setFilter] = useState<SupportFilter>('all')
-  const [view, setView] = useState<'details' | 'week'>('details')
+  const [view, setView] = useState<'upcoming' | 'month' | 'week'>('upcoming')
   const [availabilityView, setAvailabilityView] = useState<'upcoming' | 'month'>('upcoming')
   const [availability, setAvailability] = useState<Availability[]>([])
   const [loading, setLoading] = useState(true)
@@ -132,11 +132,11 @@ function App() {
   const [showHelp, setShowHelp] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [editingAvailability, setEditingAvailability] = useState<Availability | null>(null)
-  const [onlySupportNeeded, setOnlySupportNeeded] = useState(false)
   const [approvalToken, setApprovalToken] = useState(() => new URLSearchParams(window.location.search).get('approve') || '')
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
   const [message, setMessage] = useState('')
-  const visibleEvents = teamEvents.filter((event) => matchesSupportFilter(event, filter) && (!onlySupportNeeded || (!isNoSupport(event.helpNeeded) && !event.helper)))
+  const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
+  const visibleEvents = teamEvents.filter((event) => scheduleDates.has(event.date.slice(0, 8)) && (view === 'month' || (!isNoSupport(event.helpNeeded) && !event.helper && matchesSupportFilter(event, filter))))
   const pendingEvents = teamEvents.filter((event) => event.requestPending)
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
@@ -274,8 +274,7 @@ function App() {
     }
   }
   function showSupportNeeded() {
-    setOnlySupportNeeded(true)
-    setView('details')
+    setView('upcoming')
     setFilter('all')
     window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
@@ -314,13 +313,13 @@ function App() {
         <section className="schedule" aria-labelledby="schedule-title">
           <div className="section-heading">
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
-            <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'details'} className={view === 'details' ? 'active' : ''} type="button" onClick={() => setView('details')}><ListChecks aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'week'} className={view === 'week' ? 'active' : ''} type="button" onClick={() => setView('week')}><CalendarDays aria-hidden="true" /> This Month</button></div>
+            <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><ListChecks aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button><button aria-pressed={view === 'week'} className={view === 'week' ? 'active' : ''} type="button" onClick={() => setView('week')}><CalendarDays aria-hidden="true" /> Week Ahead</button></div>
           </div>
-          {onlySupportNeeded && <div className="support-filter-note" role="status"><span>Showing open times where support is requested.</span><button type="button" onClick={() => setOnlySupportNeeded(false)}>Show the full schedule</button></div>}
-          {view === 'details' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
-            {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Check-ins with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => { setFilter(value); setOnlySupportNeeded(false) }}>{label}</button>)}
+          <p className="schedule-view-note">{view === 'upcoming' ? 'Open times where someone is needed.' : view === 'month' ? 'Every schedule item for the next 30 days.' : 'A simple calendar for the next 7 days.'}</p>
+          {view === 'upcoming' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
+            {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
           </div>}
-          {!loading && (view === 'details' ? <div className="event-list">
+          {!loading && (view !== 'week' ? <div className="event-list">
             {visibleEvents.length ? visibleEvents.map((event) => {
               const WhoIcon = whoDetails[event.forWho].icon
               const helper = helpers[event.id] || event.helper
@@ -334,8 +333,8 @@ function App() {
                   <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setEditingEvent(event) }}><Pencil aria-hidden="true" /> View or edit details</button>
                 </div>
               </article>
-            }) : <EmptySchedule onAdd={() => setShowAdd(true)} />}
-          </div> : <ThirtyDayCalendar events={teamEvents} helpers={helpers} availability={availability} onAdd={() => setShowAdd(true)} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setEditingEvent(event) }} />)}
+            }) : <EmptySchedule onAdd={() => setShowAdd(true)} supportOnly={view === 'upcoming'} />}
+          </div> : <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setEditingEvent(event) }} />)}
         </section>
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Who is available</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add my availability</button></div>
@@ -372,24 +371,23 @@ function getThirtyDays() {
   })
 }
 
-function EmptySchedule({ onAdd }: { onAdd: () => void }) {
-  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>Nothing has been added yet</h3><p>Mary or Stu can add the first appointment or task.</p><button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button></div>
+function EmptySchedule({ onAdd, supportOnly = false }: { onAdd: () => void; supportOnly?: boolean }) {
+  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No open support is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'This is good news. Check This Month to see the full family schedule.' : 'Mary or Stu can add the first appointment or task.'}</p>{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
 }
 
-function ThirtyDayCalendar({ events, helpers, availability, onAdd, onOpen }: { events: TeamEvent[]; helpers: Record<string, string>; availability: Availability[]; onAdd: () => void; onOpen: (eventId: string) => void }) {
-  const days = getThirtyDays()
-  const activeDays = days.map((day) => ({
+function WeekCalendar({ events, helpers, availability, onOpen }: { events: TeamEvent[]; helpers: Record<string, string>; availability: Availability[]; onOpen: (eventId: string) => void }) {
+  const days = getThirtyDays().slice(0, 7)
+  const weekDays = days.map((day) => ({
     ...day,
     events: events.filter((event) => event.date.startsWith(day.dateKey)),
     availablePeople: availability.filter((entry) => entry.day === day.dateKey),
-  })).filter((day) => day.events.length)
+  }))
   const lastDay = days.at(-1)?.fullDay
-  if (!activeDays.length) return <div className="month-empty"><CalendarDays aria-hidden="true" /><p className="eyebrow">Today through {lastDay}</p><h3>No plans in the next 30 days</h3><p>New appointments and tasks will appear here by date.</p><button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button></div>
-  return <div className="week-calendar" role="region" aria-label={`Calendar for today through ${lastDay}`}>{activeDays.map(({ shortDay, number, fullDay, dateKey, events: dayEvents, availablePeople }) => <section className="calendar-day has-events" key={dateKey} aria-label={fullDay}><div className="calendar-date"><span>{shortDay}</span><strong>{number}</strong></div><div className="calendar-items">{dayEvents.map((event) => {
+  return <div className="week-calendar" role="region" aria-label={`Calendar for today through ${lastDay}`}>{weekDays.map(({ shortDay, number, fullDay, dateKey, events: dayEvents, availablePeople }) => <section className={`calendar-day ${dayEvents.length ? 'has-events' : ''}`} key={dateKey} aria-label={fullDay}><div className="calendar-date"><span>{shortDay}</span><strong>{number}</strong></div><div className="calendar-items">{dayEvents.length ? dayEvents.map((event) => {
     const helper = helpers[event.id] || event.helper
     const matches = isNoSupport(event.helpNeeded) ? [] : availablePeople.filter((entry) => availabilityMatchesTime(entry.time, event.time, event.endTime))
     return <button type="button" key={event.id} onClick={() => onOpen(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeRangeLabel(event)}</small>{isNoSupport(event.helpNeeded) ? <em>Busy</em> : helper ? <em>Confirmed with {helper}</em> : event.requestPending ? <em>Requested by {event.requesterName} – awaiting approval</em> : <em>{event.helpNeeded}</em>}{!helper && !event.requestPending && matches.length > 0 && <em className="availability-match">Available then: {matches.map((entry) => entry.name).join(', ')}</em>}</span></button>
-  })}</div></section>)}</div>
+  }) : <p>No plans.</p>}</div></section>)}</div>
 }
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -566,12 +564,12 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
 
   return <ModalShell title="Add an appointment or task" onClose={onClose}><p className="modal-intro">Add one item or repeat it every week.</p><form onSubmit={submit}>
     <label htmlFor="event-title">What is happening?</label><input id="event-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Example: Mary’s eye appointment" autoFocus />
-    <div className="field-row"><div><label htmlFor="event-date">Date</label><input id="event-date" type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></div><div><label htmlFor="event-for-who">Who is this for?</label><select id="event-for-who" value={form.forWho} onChange={(event) => setForm({ ...form, forWho: event.target.value as ForWho })}>{whoChoices.map((person) => <option key={person}>{person}</option>)}</select></div></div>
+    <div className="field-row"><div><label htmlFor="event-date">Date</label><input id="event-date" type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></div><div><label htmlFor="event-for-who">Who is this for?</label><select id="event-for-who" value={form.forWho} onChange={(event) => { const forWho = event.target.value as ForWho; setForm({ ...form, forWho, helpNeeded: forWho === 'Stu' ? 'Spend time with Mary' : form.helpNeeded }) }}>{whoChoices.map((person) => <option key={person}>{person}</option>)}</select></div></div>
     <div className="field-row"><div><label htmlFor="event-time">Starts</label><input id="event-time" type="time" required value={form.time} onChange={(event) => changeStartTime(event.target.value)} /></div><div><label htmlFor="event-end-time">Ends</label><input id="event-end-time" type="time" required value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} /></div></div>
     {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
     <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={(event) => setRepeats(event.target.checked)} /><span><Repeat2 aria-hidden="true" /><strong>Repeat every week</strong><small>Add this on the same weekday each week.</small></span></label>
     {repeats && <><label htmlFor="repeat-through">Repeat through</label><input id="repeat-through" type="date" min={form.date} value={repeatThrough < form.date ? form.date : repeatThrough} onChange={(event) => setRepeatThrough(event.target.value)} /></>}
-    <label htmlFor="event-help">What support is needed?</label><select id="event-help" value={form.helpNeeded} onChange={(event) => setForm({ ...form, helpNeeded: event.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>
+    <label htmlFor="event-help">What support is needed?</label><select id="event-help" value={form.forWho === 'Stu' ? 'Spend time with Mary' : form.helpNeeded} disabled={form.forWho === 'Stu'} onChange={(event) => setForm({ ...form, helpNeeded: event.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{form.forWho === 'Stu' && <p className="form-note">When Stu is out, this automatically becomes time to spend with Mary.</p>}
     <label htmlFor="event-location">Where? <span>(optional)</span></label><input id="event-location" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Clinic name, home, or address" />
     <label htmlFor="event-details">Anything else people should know? <span>(optional)</span></label><textarea id="event-details" value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder="Add a short note" />
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid}><Check aria-hidden="true" /> {repeats ? 'Add weekly schedule' : 'Add to the schedule'}</button></div>
@@ -592,10 +590,10 @@ function EditEventModal({ event, onClose, onSave, onRemove }: { event: TeamEvent
 
   return <ModalShell title="View or edit schedule" onClose={onClose}><p className="modal-intro">Click any box below to make a change.{event.repeatGroupId ? ' This changes this date only.' : ''}</p><form onSubmit={submit}>
     <label htmlFor="edit-event-title">What is happening?</label><input id="edit-event-title" required value={form.title} onChange={(changeEvent) => setForm({ ...form, title: changeEvent.target.value })} autoFocus />
-    <div className="field-row"><div><label htmlFor="edit-event-date">Date</label><input id="edit-event-date" type="date" required value={form.date} onChange={(changeEvent) => setForm({ ...form, date: changeEvent.target.value })} /></div><div><label htmlFor="edit-event-for-who">Who is this for?</label><select id="edit-event-for-who" value={form.forWho} onChange={(changeEvent) => setForm({ ...form, forWho: changeEvent.target.value as ForWho })}>{whoChoices.map((person) => <option key={person}>{person}</option>)}</select></div></div>
+    <div className="field-row"><div><label htmlFor="edit-event-date">Date</label><input id="edit-event-date" type="date" required value={form.date} onChange={(changeEvent) => setForm({ ...form, date: changeEvent.target.value })} /></div><div><label htmlFor="edit-event-for-who">Who is this for?</label><select id="edit-event-for-who" value={form.forWho} onChange={(changeEvent) => { const forWho = changeEvent.target.value as ForWho; setForm({ ...form, forWho, helpNeeded: forWho === 'Stu' ? 'Spend time with Mary' : form.helpNeeded }) }}>{whoChoices.map((person) => <option key={person}>{person}</option>)}</select></div></div>
     <div className="field-row"><div><label htmlFor="edit-event-time">Starts</label><input id="edit-event-time" type="time" required value={form.time} onChange={(changeEvent) => setForm({ ...form, time: changeEvent.target.value, endTime: addHour(changeEvent.target.value) })} /></div><div><label htmlFor="edit-event-end-time">Ends</label><input id="edit-event-end-time" type="time" required value={form.endTime} onChange={(changeEvent) => setForm({ ...form, endTime: changeEvent.target.value })} /></div></div>
     {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
-    <label htmlFor="edit-event-help">What support is needed?</label><select id="edit-event-help" value={form.helpNeeded} onChange={(changeEvent) => setForm({ ...form, helpNeeded: changeEvent.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>
+    <label htmlFor="edit-event-help">What support is needed?</label><select id="edit-event-help" value={form.forWho === 'Stu' ? 'Spend time with Mary' : form.helpNeeded} disabled={form.forWho === 'Stu'} onChange={(changeEvent) => setForm({ ...form, helpNeeded: changeEvent.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{form.forWho === 'Stu' && <p className="form-note">When Stu is out, this automatically becomes time to spend with Mary.</p>}
     <label htmlFor="edit-event-location">Where? <span>(optional)</span></label><input id="edit-event-location" value={form.location || ''} onChange={(changeEvent) => setForm({ ...form, location: changeEvent.target.value })} />
     <label htmlFor="edit-event-details">Details <span>(optional)</span></label><textarea id="edit-event-details" value={form.details} onChange={(changeEvent) => setForm({ ...form, details: changeEvent.target.value })} />
     <div className="remove-area">{confirmRemove ? <div className="remove-confirm" role="alert"><p><strong>Remove this schedule item?</strong></p><div><button className="text-button" type="button" onClick={() => setConfirmRemove(false)}>Keep it</button><button className="danger-button" type="button" onClick={() => onRemove(event.id)}><Trash2 aria-hidden="true" /> Yes, remove it</button></div></div> : <button className="remove-button" type="button" onClick={() => setConfirmRemove(true)}><Trash2 aria-hidden="true" /> Remove this item</button>}</div>
@@ -609,7 +607,7 @@ function ApprovalModal({ request, onClose, onApprove }: { request: ApprovalReque
 }
 
 function HelpModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>See where support is needed.</strong> The top button shows only open rides, check-ins with Mary at home, errands, Coco care, and other support times.</p></div><div><span>2</span><p><strong>Share when you are free.</strong> Add your name, phone number, dates, and hours. Tap your availability later to edit several dates together.</p></div><div><span>3</span><p><strong>Request an open time.</strong> Every request waits for Mary or Stu to approve it from their email.</p></div><div><span>4</span><p><strong>Tap a schedule item to edit it.</strong> Mary or Stu can change who it is for, the support needed, the date, the times, or remove it.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
+  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>See where support is needed.</strong> The top button shows only open rides, time to spend with Mary, errands, Coco care, and other support times.</p></div><div><span>2</span><p><strong>Share when you are free.</strong> Add your name, phone number, dates, and hours. Tap your availability later to edit several dates together.</p></div><div><span>3</span><p><strong>Request an open time.</strong> Every request waits for Mary or Stu to approve it from their email.</p></div><div><span>4</span><p><strong>Tap a schedule item to edit it.</strong> Mary or Stu can change who it is for, the support needed, the date, the times, or remove it.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
 }
 
 export default App

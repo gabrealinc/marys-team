@@ -57,6 +57,7 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .view-toggle button { min-height:44px; border:0; border-radius:9px; padding:9px 14px; background:transparent; color:var(--ink); display:flex; align-items:center; gap:8px; font-weight:800; }
 .view-toggle button svg { width:20px; }
 .view-toggle button.active { background:#fff; color:var(--pine-dark); box-shadow:0 2px 8px rgba(36,59,49,.12); }
+.schedule-view-note { margin:14px 0 12px; color:var(--muted); font-weight:700; }
 .filters { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 .filters button { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:999px; padding:11px 16px; font-weight:750; }
 .filters button:hover { border-color:var(--fern); }
