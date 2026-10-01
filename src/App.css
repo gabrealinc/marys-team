@@ -155,7 +155,8 @@ textarea { min-height:95px; resize:vertical; }
 .date-picker-grid button strong { margin-top:2px; font-size:1.05rem; }
 .date-picker-grid button[aria-pressed="true"] { border-color:var(--pine); background:var(--pine); color:#fff; }
 .date-picker-grid button[aria-pressed="true"] span { color:#fff; }
-.range-fields { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+.range-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.range-fields>div:first-child:nth-last-child(3) { grid-column:1/-1; }
 .selection-summary { margin:10px 0 18px; color:var(--muted); }
 .field-error { margin:-4px 0 16px; color:#8a3f2f; font-weight:750; }
 .primary-button:disabled { cursor:not-allowed; opacity:.48; }
