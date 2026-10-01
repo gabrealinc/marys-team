@@ -101,6 +101,22 @@ function readableTime(value: string) {
   return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
+function readableAvailabilityTime(value: string) {
+  if (value === 'anytime') return 'All day'
+  const range = value.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/)
+  if (range) return `${readableTime(range[1])} to ${readableTime(range[2])}`
+  if (value === 'morning') return 'Morning (8 AM to noon)'
+  if (value === 'afternoon') return 'Afternoon (noon to 5 PM)'
+  if (value === 'evening') return 'Evening (5 PM to 8 PM)'
+  return value
+}
+
+function readableDay(value: string) {
+  if (!/^\d{8}$/.test(value)) return value
+  const date = new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T12:00:00`)
+  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   response.setHeader('Cache-Control', 'no-store')
 
@@ -133,7 +149,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }
     }
 
-    async function notifyAvailabilityMatches(entries: AvailabilityInput[]) {
+    async function findAvailabilityMatches(entries: AvailabilityInput[]) {
       const events = await sql`
         SELECT id, event_date AS date, day_label AS "dayLabel", event_time AS time,
           title, help_needed AS "helpNeeded"
@@ -144,6 +160,52 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const matches = entries.flatMap((entry) => events
         .filter((event) => String(event.date).slice(0, 8) === entry.day && timeMatchesAvailability(entry.time, String(event.time)))
         .map((event) => ({ entry, event })))
+      return matches
+    }
+
+    async function notifyNewAvailability(entries: AvailabilityInput[]) {
+      if (!entries.length) return
+      const matches = await findAvailabilityMatches(entries)
+      const availabilityKey = `availability-added:${entries.map((entry) => entry.id).sort().join(':')}`
+      if (!await reserveNotification(availabilityKey)) return
+      const matchReservations = await Promise.all(matches.map(async (match) => {
+        const key = `match:${match.entry.id}:${match.event.id}`
+        return { key, reserved: await reserveNotification(key) }
+      }))
+      const reservedKeys = [availabilityKey, ...matchReservations.filter((result) => result.reserved).map((result) => result.key)]
+      const person = entries[0]
+      const dates = entries.map((entry) => readableDay(entry.day))
+      const shownDates = dates.slice(0, 10).join(', ') + (dates.length > 10 ? `, plus ${dates.length - 10} more` : '')
+
+      try {
+        const sent = await sendTeamNotification({
+          subject: `Mary's Team: ${person.name} added availability`,
+          heading: 'New availability was added',
+          intro: matches.length
+            ? `${person.name} added availability, and it may match ${matches.length === 1 ? 'an open item' : `${matches.length} open items`} on the schedule.`
+            : `${person.name} added availability. It does not currently match an open schedule item.`,
+          rows: [
+            { label: 'Person', value: person.name },
+            { label: 'Phone', value: person.phone },
+            { label: 'Dates', value: shownDates },
+            { label: 'Available', value: readableAvailabilityTime(person.time) },
+            { label: 'Can help with', value: person.note },
+            ...matches.flatMap(({ event }) => [
+              { label: 'Possible match', value: String(event.title) },
+              { label: 'When', value: `${String(event.dayLabel)} at ${readableTime(String(event.time))}` },
+              { label: 'Help needed', value: String(event.helpNeeded) },
+            ]),
+          ],
+        })
+        if (!sent) await Promise.all(reservedKeys.map(releaseNotification))
+      } catch (error) {
+        await Promise.all(reservedKeys.map(releaseNotification))
+        console.error('New availability email failed', error)
+      }
+    }
+
+    async function notifyAvailabilityMatches(entries: AvailabilityInput[]) {
+      const matches = await findAvailabilityMatches(entries)
       if (!matches.length) return
 
       const reservationResults = await Promise.all(matches.map(async (match) => {
@@ -300,7 +362,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `))
-      await notifyAvailabilityMatches(entries)
+      await notifyNewAvailability(entries)
       return response.status(201).json({ entries: savedRows.flat() })
     }
 
@@ -322,7 +384,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `
-      await notifyAvailabilityMatches([entry])
+      await notifyNewAvailability([entry])
       return response.status(201).json({ entry: saved })
     }
 
