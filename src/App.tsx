@@ -398,7 +398,7 @@ function EditAvailabilityModal({ entries, initialEntry, onClose, onSave, onRemov
     return { value, label: eventTimeLabel(value) }
   })
   const range = initialEntry.time.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/)
-  const [selectedIds, setSelectedIds] = useState(entries.map((entry) => entry.id))
+  const [selectedIds, setSelectedIds] = useState([initialEntry.id])
   const [name, setName] = useState(initialEntry.name)
   const [phone, setPhone] = useState(initialEntry.phone || '')
   const [timeMode, setTimeMode] = useState<'hours' | 'all-day'>(initialEntry.time === 'anytime' ? 'all-day' : 'hours')
@@ -418,7 +418,7 @@ function EditAvailabilityModal({ entries, initialEntry, onClose, onSave, onRemov
   return <ModalShell title="Edit availability" onClose={onClose}>
     <p className="modal-intro">Choose the dates to change. The new contact details, hours, and help type will apply to every selected date.</p>
     <form onSubmit={submit}>
-      <fieldset className="bulk-date-list"><legend>Which dates do you want to change?</legend>{[...entries].sort((a, b) => a.day.localeCompare(b.day)).map((entry) => <label key={entry.id}><input type="checkbox" checked={selectedIds.includes(entry.id)} onChange={() => setSelectedIds((ids) => ids.includes(entry.id) ? ids.filter((id) => id !== entry.id) : [...ids, entry.id])} /><span><strong>{availabilityDayLabel(entry.day)}</strong><small>{availabilityTimeLabel(entry.time)}</small></span></label>)}</fieldset>
+      <fieldset className="bulk-date-list"><legend>Which dates do you want to change?</legend><div className="bulk-date-actions"><button type="button" onClick={() => setSelectedIds(entries.map((entry) => entry.id))}>Select all {entries.length} dates</button><button type="button" onClick={() => setSelectedIds([initialEntry.id])}>Only {availabilityDayLabel(initialEntry.day)}</button></div>{[...entries].sort((a, b) => a.day.localeCompare(b.day)).map((entry) => <label key={entry.id}><input type="checkbox" checked={selectedIds.includes(entry.id)} onChange={() => setSelectedIds((ids) => ids.includes(entry.id) ? ids.filter((id) => id !== entry.id) : [...ids, entry.id])} /><span><strong>{availabilityDayLabel(entry.day)}</strong><small>{availabilityTimeLabel(entry.time)}</small></span></label>)}</fieldset>
       <p className="selection-summary"><strong>{selectedEntries.length || 'No'} {selectedEntries.length === 1 ? 'date' : 'dates'} selected</strong></p>
       <label htmlFor="edit-available-name">Your name</label>
       <input id="edit-available-name" required value={name} onChange={(event) => setName(event.target.value)} autoFocus />

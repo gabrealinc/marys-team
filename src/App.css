@@ -159,6 +159,9 @@ textarea { min-height:95px; resize:vertical; }
 .form-actions { display:flex; justify-content:flex-end; gap:14px; margin-top:26px; }
 .bulk-date-list { margin:0; padding:0; border:0; display:grid; gap:8px; }
 .bulk-date-list legend { margin-bottom:8px; color:var(--ink); font-weight:850; }
+.bulk-date-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:2px; }
+.bulk-date-actions button { min-height:44px; border:1px solid #aec3b3; border-radius:9px; background:#fff; color:var(--pine-dark); padding:8px 10px; font:inherit; font-weight:800; cursor:pointer; }
+.bulk-date-actions button:hover { background:var(--mint); }
 .bulk-date-list label { margin:0; padding:11px 13px; border:1px solid var(--line); border-radius:10px; display:flex; align-items:center; gap:12px; background:var(--mist); cursor:pointer; }
 .bulk-date-list input { width:23px; min-height:23px; height:23px; flex:0 0 23px; accent-color:var(--pine); }
 .bulk-date-list span,.bulk-date-list strong,.bulk-date-list small { display:block; }
@@ -263,6 +266,7 @@ textarea { min-height:95px; resize:vertical; }
   .remove-button { width:100%; }
   .remove-confirm>div { flex-direction:column; }
   .remove-confirm button { width:100%; }
+  .bulk-date-actions { grid-template-columns:1fr; }
   footer { text-align:center; flex-direction:column; }
   .toast { left:14px; right:14px; bottom:14px; }
 }
