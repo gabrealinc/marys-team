@@ -65,6 +65,10 @@ function availabilityMatchesTime(slot: string, eventTime: string) {
   return slot === 'evening' && minutes >= 1020 && minutes <= 1200
 }
 
+function matchingAvailability(event: TeamEvent, availability: Availability[]) {
+  return availability.filter((entry) => entry.day === event.date.slice(0, 8) && availabilityMatchesTime(entry.time, event.time))
+}
+
 
 async function apiRequest(body?: unknown) {
   const response = await fetch('/api/data', body ? {
@@ -199,9 +203,10 @@ function App() {
             {visibleEvents.length ? visibleEvents.map((event) => {
               const CategoryIcon = categoryDetails[event.category].icon
               const helper = helpers[event.id] || event.helper
+              const suggestedHelpers = matchingAvailability(event, availability)
               return <article className={`event-card ${event.category}`} id={`event-${event.id}`} key={event.id}>
                 <div className="event-date"><span className="category-label"><CategoryIcon aria-hidden="true" /> {categoryDetails[event.category].label}</span><p>{event.dayLabel}</p><strong><Clock3 aria-hidden="true" /> {eventTimeLabel(event.time)}</strong></div>
-                <div className="event-info"><h3>{event.title}</h3><p>{event.details}</p>{event.location && <p className="location">{event.location}</p>}<div className="needed"><ListChecks aria-hidden="true" /><span><small>Help needed</small><strong>{event.helpNeeded}</strong></span></div></div>
+                <div className="event-info"><h3>{event.title}</h3><p>{event.details}</p>{event.location && <p className="location">{event.location}</p>}<div className="needed"><ListChecks aria-hidden="true" /><span><small>Help needed</small><strong>{event.helpNeeded}</strong></span></div>{!helper && suggestedHelpers.length > 0 && event.helpNeeded !== 'No help needed, just sharing the schedule' && <div className="suggested-help"><HeartHandshake aria-hidden="true" /><span><small>Suggested helpers available then</small><strong>{suggestedHelpers.map((entry) => entry.name).join(', ')}</strong><em>They still need to choose “I can help.”</em></span></div>}</div>
                 <div className="event-actions">
                   {helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Slot filled by</small><strong>{helper}</strong></span></div> : <button className="primary-button" type="button" onClick={() => setSignupEvent(event)}><HeartHandshake aria-hidden="true" /> I can help</button>}
                   <button className="calendar-button" type="button" onClick={() => addToCalendar(event)}><Download aria-hidden="true" /> Add to my calendar</button>
@@ -233,6 +238,7 @@ function getThirtyDays() {
     date.setDate(start.getDate() + index)
     return {
       shortDay: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      monthShort: date.toLocaleDateString('en-US', { month: 'short' }),
       number: date.toLocaleDateString('en-US', { day: 'numeric' }),
       fullDay: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
       dateKey: `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`,
@@ -256,7 +262,7 @@ function ThirtyDayCalendar({ events, helpers, availability, onAdd, onOpen }: { e
   return <div className="week-calendar" aria-label={`Calendar for today through ${lastDay}`}>{activeDays.map(({ shortDay, number, fullDay, dateKey, events: dayEvents, availablePeople }) => <section className="calendar-day has-events" key={dateKey} aria-label={fullDay}><div className="calendar-date"><span>{shortDay}</span><strong>{number}</strong></div><div className="calendar-items">{dayEvents.map((event) => {
     const helper = helpers[event.id] || event.helper
     const matches = availablePeople.filter((entry) => availabilityMatchesTime(entry.time, event.time))
-    return <button type="button" key={event.id} onClick={() => onOpen(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeLabel(event.time)}</small>{helper ? <em>Filled by {helper}</em> : <em>{event.helpNeeded}</em>}{!helper && matches.length > 0 && <em className="availability-match">Available then: {matches.map((entry) => entry.name).join(', ')}</em>}</span></button>
+    return <button type="button" key={event.id} onClick={() => onOpen(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeLabel(event.time)}</small>{helper ? <em>Filled by {helper}</em> : <em>{event.helpNeeded}</em>}{!helper && matches.length > 0 && <em className="availability-match">Suggested: {matches.map((entry) => entry.name).join(', ')} {matches.length === 1 ? 'is' : 'are'} available at this time</em>}</span></button>
   })}{availablePeople.length > 0 && <div className="day-availability"><strong><Users aria-hidden="true" /> Available to help</strong><div>{availablePeople.map((entry) => <span key={entry.id}><b>{entry.name}</b> · {availabilityTimeLabel(entry.time)} · {entry.note}</span>)}</div></div>}</div></section>)}</div>
 }
 
@@ -274,6 +280,8 @@ function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: ()
 }
 function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (entries: Omit<Availability, 'id'>[]) => void }) {
   const days = getThirtyDays()
+  const firstDate = days[0].dateKey
+  const firstWeekday = new Date(`${firstDate.slice(0, 4)}-${firstDate.slice(4, 6)}-${firstDate.slice(6, 8)}T12:00:00`).getDay()
   const timeOptions = Array.from({ length: 25 }, (_, index) => {
     const minutes = 8 * 60 + index * 30
     const value = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
@@ -285,6 +293,7 @@ function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (
   const [rangeStart, setRangeStart] = useState(days[0].dateKey)
   const [rangeEnd, setRangeEnd] = useState(days[Math.min(13, days.length - 1)].dateKey)
   const [weekday, setWeekday] = useState('2')
+  const [timeMode, setTimeMode] = useState<'hours' | 'all-day'>('hours')
   const [startTime, setStartTime] = useState('12:00')
   const [endTime, setEndTime] = useState('15:00')
   const [note, setNote] = useState('')
@@ -300,12 +309,12 @@ function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (
   }
 
   const chosenDates = datesForSelection()
-  const selectionIsValid = chosenDates.length > 0 && endTime > startTime
+  const selectionIsValid = chosenDates.length > 0 && (timeMode === 'all-day' || endTime > startTime)
 
   function submit(event: React.FormEvent) {
     event.preventDefault()
     if (!selectionIsValid) return
-    onSave(chosenDates.map((day) => ({ name, day, time: `${startTime}-${endTime}`, note })))
+    onSave(chosenDates.map((day) => ({ name, day, time: timeMode === 'all-day' ? 'anytime' : `${startTime}-${endTime}`, note })))
   }
 
   return <ModalShell title="Add my availability" onClose={onClose}>
@@ -319,18 +328,23 @@ function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (
         <button type="button" aria-pressed={mode === 'range'} onClick={() => setMode('range')}>Date range</button>
         <button type="button" aria-pressed={mode === 'weekly'} onClick={() => setMode('weekly')}>Every week</button>
       </div>
-      {mode === 'dates' && <div className="date-picker-grid" aria-label="Select one or more dates">{days.map((day) => {
-        const selected = selectedDates.includes(day.dateKey)
-        return <button type="button" key={day.dateKey} aria-pressed={selected} onClick={() => setSelectedDates(selected ? selectedDates.filter((date) => date !== day.dateKey) : [...selectedDates, day.dateKey])}><span>{day.shortDay}</span><strong>{day.number}</strong></button>
-      })}</div>}
+      {mode === 'dates' && <div className="calendar-date-picker">
+        <div className="date-picker-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="date-picker-grid" aria-label="Select one or more dates">{Array.from({ length: firstWeekday }, (_, index) => <span className="date-picker-blank" key={`blank-${index}`} aria-hidden="true" />)}{days.map((day) => {
+          const selected = selectedDates.includes(day.dateKey)
+          return <button type="button" key={day.dateKey} aria-label={day.fullDay} aria-pressed={selected} onClick={() => setSelectedDates(selected ? selectedDates.filter((date) => date !== day.dateKey) : [...selectedDates, day.dateKey])}><span>{day.monthShort}</span><strong>{day.number}</strong></button>
+        })}</div>
+      </div>}
       {(mode === 'range' || mode === 'weekly') && <div className="range-fields">
         {mode === 'weekly' && <div><label htmlFor="available-weekday">Repeat on</label><select id="available-weekday" value={weekday} onChange={(e) => setWeekday(e.target.value)}><option value="0">Every Sunday</option><option value="1">Every Monday</option><option value="2">Every Tuesday</option><option value="3">Every Wednesday</option><option value="4">Every Thursday</option><option value="5">Every Friday</option><option value="6">Every Saturday</option></select></div>}
         <div><label htmlFor="available-start-date">Starting</label><select id="available-start-date" value={rangeStart} onChange={(e) => setRangeStart(e.target.value)}>{days.map((day) => <option key={day.dateKey} value={day.dateKey}>{day.fullDay}</option>)}</select></div>
         <div><label htmlFor="available-end-date">Through</label><select id="available-end-date" value={rangeEnd} onChange={(e) => setRangeEnd(e.target.value)}>{days.map((day) => <option key={day.dateKey} value={day.dateKey}>{day.fullDay}</option>)}</select></div>
       </div>}
       <p className="selection-summary"><strong>{chosenDates.length || 'No'} {chosenDates.length === 1 ? 'date' : 'dates'} selected</strong>{mode === 'dates' && !chosenDates.length ? ' – choose at least one date above.' : ''}</p>
-      <div className="field-row"><div><label htmlFor="available-start-time">Available from</label><select id="available-start-time" value={startTime} onChange={(e) => setStartTime(e.target.value)}>{timeOptions.slice(0, -1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div><div><label htmlFor="available-end-time">Until</label><select id="available-end-time" value={endTime} onChange={(e) => setEndTime(e.target.value)}>{timeOptions.slice(1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div></div>
-      {endTime <= startTime && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
+      <label>When are you available?</label>
+      <div className="time-mode" aria-label="Choose all day or specific hours"><button type="button" aria-pressed={timeMode === 'all-day'} onClick={() => setTimeMode('all-day')}>All day</button><button type="button" aria-pressed={timeMode === 'hours'} onClick={() => setTimeMode('hours')}>Choose hours</button></div>
+      {timeMode === 'hours' && <div className="field-row"><div><label htmlFor="available-start-time">Available from</label><select id="available-start-time" value={startTime} onChange={(e) => setStartTime(e.target.value)}>{timeOptions.slice(0, -1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div><div><label htmlFor="available-end-time">Until</label><select id="available-end-time" value={endTime} onChange={(e) => setEndTime(e.target.value)}>{timeOptions.slice(1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div></div>}
+      {timeMode === 'hours' && endTime <= startTime && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
       <label htmlFor="available-note">What can you help with?</label>
       <select id="available-note" required value={note} onChange={(e) => setNote(e.target.value)}><option value="">Choose one</option>{helpChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>
       <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!selectionIsValid}><Check aria-hidden="true" /> Add {chosenDates.length || ''} {chosenDates.length === 1 ? 'date' : 'dates'}</button></div>
