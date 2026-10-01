@@ -132,6 +132,7 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [cloudError, setCloudError] = useState('')
   const [signupEvent, setSignupEvent] = useState<TeamEvent | null>(null)
+  const [viewingEvent, setViewingEvent] = useState<TeamEvent | null>(null)
   const [editingEvent, setEditingEvent] = useState<TeamEvent | null>(null)
   const [showAvailability, setShowAvailability] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
@@ -381,17 +382,17 @@ function App() {
               const WhoIcon = whoDetails[event.forWho].icon
               const helper = helpers[event.id] || event.helper
               const suggestedHelpers = matchingAvailability(event, availability)
-              return <article className={`event-card ${event.category} ${organizer ? 'organizer-editable' : ''}`} id={`event-${event.id}`} key={event.id} onClick={organizer ? () => setEditingEvent(event) : undefined}>
+              return <article className={`event-card viewable ${event.category}`} id={`event-${event.id}`} key={event.id} onClick={() => setViewingEvent(event)}>
                 <div className="event-date"><span className="category-label"><WhoIcon aria-hidden="true" /> {whoDetails[event.forWho].label}</span><p>{event.dayLabel}</p><strong><Clock3 aria-hidden="true" /> {eventTimeRangeLabel(event)}</strong>{event.repeatGroupId && <small className="repeat-label"><Repeat2 aria-hidden="true" /> Repeats weekly</small>}</div>
-                <div className="event-info"><h3>{event.title}</h3><p>{event.details}</p>{event.location && <p className="location">{event.location}</p>}<div className={`needed ${isNoSupport(event.helpNeeded) ? 'busy-needed' : ''}`}><ListChecks aria-hidden="true" /><span><small>{isNoSupport(event.helpNeeded) ? 'Busy time' : 'Support requested'}</small><strong>{isNoSupport(event.helpNeeded) ? 'Please do not stop by during this time.' : event.helpNeeded}</strong></span></div>{!helper && !event.requestPending && suggestedHelpers.length > 0 && !isNoSupport(event.helpNeeded) && <div className="suggested-help"><HeartHandshake aria-hidden="true" /><span><small>People available then</small><strong>{suggestedHelpers.map((entry) => entry.name).join(', ')}</strong><em>They can choose this time if it works for them.</em></span></div>}</div>
+                <div className="event-info"><h3>{event.title}</h3><p>{event.details}</p>{event.location && <p className="location">{event.location}</p>}<span className="card-details-hint">Tap to see details</span><div className={`needed ${isNoSupport(event.helpNeeded) ? 'busy-needed' : ''}`}><ListChecks aria-hidden="true" /><span><small>{isNoSupport(event.helpNeeded) ? 'Busy time' : 'Support requested'}</small><strong>{isNoSupport(event.helpNeeded) ? 'Please do not stop by during this time.' : event.helpNeeded}</strong></span></div>{!helper && !event.requestPending && suggestedHelpers.length > 0 && !isNoSupport(event.helpNeeded) && <div className="suggested-help"><HeartHandshake aria-hidden="true" /><span><small>People available then</small><strong>{suggestedHelpers.map((entry) => entry.name).join(', ')}</strong><em>They can choose this time if it works for them.</em></span></div>}</div>
                 <div className="event-actions">
                   {isNoSupport(event.helpNeeded) ? <div className="busy-status"><Clock3 aria-hidden="true" /><span><small>Status</small><strong>Busy</strong></span></div> : helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : event.requestPending ? <div className="requested"><Clock3 aria-hidden="true" /><span><small>Awaiting approval</small><strong>{organizer && event.requesterName ? `Requested by ${event.requesterName}` : 'Request waiting for Mary or Stu'}</strong></span></div> : <button className="primary-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setSignupEvent(event) }}><HeartHandshake aria-hidden="true" /> I can support</button>}
                   <button className="calendar-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); addToCalendar(event) }}><Download aria-hidden="true" /> Add to my calendar</button>
-                  {organizer && <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setEditingEvent(event) }}><Pencil aria-hidden="true" /> View or edit details</button>}
+                  <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setViewingEvent(event) }}><Pencil aria-hidden="true" /> {organizer ? 'View or edit details' : 'View details'}</button>
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => organizer ? setShowAdd(true) : setShowOrganizerLogin(true)} supportOnly={view === 'upcoming'} />}
-          </div> : <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={organizer ? (eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setEditingEvent(event) } : undefined} />)}
+          </div> : <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
         </section>
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Who is available</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add my availability</button></div>
@@ -402,6 +403,7 @@ function App() {
       <footer><HeartHandshake aria-hidden="true" /><p><strong>Thank you for being part of Mary’s Team.</strong><br />Questions? Call or text the family coordinator.</p></footer>
       {message && <div className="toast" role="status"><Check aria-hidden="true" /> {message}</div>}
       {signupEvent && <SignupModal event={signupEvent} onClose={() => setSignupEvent(null)} onSave={saveHelper} />}
+      {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} />}
       {editingEvent && <EditEventModal event={editingEvent} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => (phoneKey(editingAvailability.phone) ? phoneKey(entry.phone) === phoneKey(editingAvailability.phone) : entry.name.trim().toLocaleLowerCase() === editingAvailability.name.trim().toLocaleLowerCase()) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
@@ -455,6 +457,20 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [onClose])
   return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button><h2 id="modal-title">{title}</h2>{children}</section></div>
+}
+function EventDetailsModal({ event, organizer, onClose, onEdit }: { event: TeamEvent; organizer: boolean; onClose: () => void; onEdit: () => void }) {
+  return <ModalShell title={event.title} onClose={onClose}>
+    <div className="event-detail-summary">
+      <div><small>Who</small><strong>{whoDetails[event.forWho].label}</strong></div>
+      <div><small>When</small><strong>{event.dayLabel}<br />{eventTimeRangeLabel(event)}</strong></div>
+      <div><small>{isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{isNoSupport(event.helpNeeded) ? 'Busy – please do not stop by' : event.helpNeeded}</strong></div>
+      {event.location && <div><small>Where</small><strong>{event.location}</strong></div>}
+      <div><small>Details</small><p>{event.details}</p></div>
+      {event.helper && <div><small>Confirmed</small><strong>{event.helper}</strong></div>}
+      {!event.helper && event.requestPending && <div><small>Status</small><strong>Waiting for Mary or Stu to approve a request</strong></div>}
+    </div>
+    <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
+  </ModalShell>
 }
 function OrganizerPanel({ requests, onDecide, onLogout }: { requests: PendingRequest[]; onDecide: (id: string, decision: 'approve' | 'decline') => void; onLogout: () => void }) {
   return <section className="organizer-panel" aria-labelledby="organizer-title"><div className="organizer-heading"><div><p className="eyebrow">Private organizer area</p><h2 id="organizer-title">Mary & Stu</h2></div><button className="text-button" type="button" onClick={onLogout}>Close organizer access</button></div>{requests.length ? <><p className="organizer-intro">Review each request below. These names and phone numbers are only visible after entering the organizer PIN.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a><p>{request.title}</p><small>{request.dayLabel}, {eventTimeLabel(request.time)} – {eventTimeLabel(request.endTime)} · {request.helpNeeded}</small></div><div><button className="text-button" type="button" onClick={() => onDecide(request.id, 'decline')}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div>}</section>
