@@ -1,5 +1,6 @@
 import { neon } from '@neondatabase/serverless'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { sendTeamNotification } from '../lib/email.js'
 
 type Category = 'appointment' | 'home' | 'dad'
 
@@ -44,6 +45,7 @@ async function ensureSchema() {
       location TEXT,
       help_needed TEXT NOT NULL,
       helper TEXT,
+      helper_phone TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
@@ -59,6 +61,13 @@ async function ensureSchema() {
     )
   `
   await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS helper_phone TEXT`
+  await sql`
+    CREATE TABLE IF NOT EXISTS notification_log (
+      notification_key TEXT PRIMARY KEY,
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
 }
 
 function clean(value: unknown, maxLength = 500) {
@@ -69,12 +78,105 @@ function sendError(response: VercelResponse, status: number, message: string) {
   return response.status(status).json({ error: message })
 }
 
+function timeMatchesAvailability(slot: string, eventTime: string) {
+  if (slot === 'anytime') return true
+  const match = eventTime.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return false
+  const minutes = Number(match[1]) * 60 + Number(match[2])
+  const range = slot.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/)
+  if (range) {
+    const start = Number(range[1]) * 60 + Number(range[2])
+    const end = Number(range[3]) * 60 + Number(range[4])
+    return minutes >= start && minutes <= end
+  }
+  if (slot === 'morning') return minutes >= 480 && minutes < 720
+  if (slot === 'afternoon') return minutes >= 720 && minutes < 1020
+  return slot === 'evening' && minutes >= 1020 && minutes <= 1200
+}
+
+function readableTime(value: string) {
+  const match = value.match(/^(\d{1,2}):(\d{2})$/)
+  if (!match) return value
+  const date = new Date(2000, 0, 1, Number(match[1]), Number(match[2]))
+  return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
 export default async function handler(request: VercelRequest, response: VercelResponse) {
   response.setHeader('Cache-Control', 'no-store')
 
   try {
     await ensureSchema()
     const sql = database()
+
+    async function reserveNotification(key: string) {
+      const rows = await sql`
+        INSERT INTO notification_log (notification_key)
+        VALUES (${key})
+        ON CONFLICT DO NOTHING
+        RETURNING notification_key
+      `
+      return rows.length > 0
+    }
+
+    async function releaseNotification(key: string) {
+      await sql`DELETE FROM notification_log WHERE notification_key = ${key}`
+    }
+
+    async function notifyOnce(key: string, details: Parameters<typeof sendTeamNotification>[0]) {
+      if (!await reserveNotification(key)) return
+      try {
+        const sent = await sendTeamNotification(details)
+        if (!sent) await releaseNotification(key)
+      } catch (error) {
+        await releaseNotification(key)
+        console.error('Notification email failed', error)
+      }
+    }
+
+    async function notifyAvailabilityMatches(entries: AvailabilityInput[]) {
+      const events = await sql`
+        SELECT id, event_date AS date, day_label AS "dayLabel", event_time AS time,
+          title, help_needed AS "helpNeeded"
+        FROM team_events
+        WHERE (helper IS NULL OR helper = '')
+          AND help_needed <> 'No help needed, just sharing the schedule'
+      `
+      const matches = entries.flatMap((entry) => events
+        .filter((event) => String(event.date).slice(0, 8) === entry.day && timeMatchesAvailability(entry.time, String(event.time)))
+        .map((event) => ({ entry, event })))
+      if (!matches.length) return
+
+      const reservationResults = await Promise.all(matches.map(async (match) => {
+        const key = `match:${match.entry.id}:${match.event.id}`
+        return { match, key, reserved: await reserveNotification(key) }
+      }))
+      const freshReservations = reservationResults.filter((result) => result.reserved)
+      const freshMatches = freshReservations.map((result) => result.match)
+      const reservedKeys = freshReservations.map((result) => result.key)
+      if (!freshMatches.length) return
+
+      try {
+        const person = freshMatches[0].entry
+        const sent = await sendTeamNotification({
+          subject: `Mary's Team: ${person.name} may be available to help`,
+          heading: 'A helper may be available',
+          intro: `${person.name}'s availability matches ${freshMatches.length === 1 ? 'an open item' : `${freshMatches.length} open items`} on the schedule. No one has been signed up automatically.`,
+          rows: [
+            { label: 'Available helper', value: person.name },
+            { label: 'Phone', value: person.phone },
+            ...freshMatches.flatMap(({ event }) => [
+              { label: 'Open item', value: String(event.title) },
+              { label: 'When', value: `${String(event.dayLabel)} at ${readableTime(String(event.time))}` },
+              { label: 'Help needed', value: String(event.helpNeeded) },
+            ]),
+          ],
+        })
+        if (!sent) await Promise.all(reservedKeys.map(releaseNotification))
+      } catch (error) {
+        await Promise.all(reservedKeys.map(releaseNotification))
+        console.error('Availability match email failed', error)
+      }
+    }
 
     if (request.method === 'GET') {
       const events = await sql`
@@ -98,6 +200,32 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     const action = clean(request.body?.action, 30)
+
+    if (action === 'sendNotificationTest') {
+      if (process.env.NOTIFICATION_MODE === 'live') return sendError(response, 404, 'The test email is no longer available.')
+      const key = 'setup:test-email:v1'
+      if (!await reserveNotification(key)) return response.status(200).json({ sent: true, alreadySent: true })
+      try {
+        const sent = await sendTeamNotification({
+          subject: "Mary's Team email test",
+          heading: 'Email notifications are connected',
+          intro: "This is a test only. Mary and Stu have not been notified yet.",
+          rows: [
+            { label: 'Sign-up alerts', value: 'Ready for testing' },
+            { label: 'Availability matches', value: 'Ready for testing' },
+          ],
+        })
+        if (!sent) {
+          await releaseNotification(key)
+          return sendError(response, 503, 'Email notifications are not fully connected yet.')
+        }
+        return response.status(200).json({ sent: true })
+      } catch (error) {
+        await releaseNotification(key)
+        console.error('Test email failed', error)
+        return sendError(response, 502, 'The test email could not be sent. Please check the Google mail connection.')
+      }
+    }
 
     if (action === 'addEvent') {
       const item = request.body?.event as Partial<TeamEventInput> | undefined
@@ -128,14 +256,29 @@ export default async function handler(request: VercelRequest, response: VercelRe
     if (action === 'claimEvent') {
       const eventId = clean(request.body?.eventId, 80)
       const name = clean(request.body?.name, 120)
-      if (!eventId || !name) return sendError(response, 400, 'Please enter your name.')
+      const phone = clean(request.body?.phone, 40)
+      if (!eventId || !name || !phone) return sendError(response, 400, 'Please enter your name and phone number.')
       const rows = await sql`
         UPDATE team_events
-        SET helper = ${name}
+        SET helper = ${name}, helper_phone = ${phone}
         WHERE id = ${eventId} AND (helper IS NULL OR helper = '')
-        RETURNING id, helper
+        RETURNING id, helper, helper_phone AS "helperPhone", title,
+          day_label AS "dayLabel", event_time AS time, help_needed AS "helpNeeded"
       `
       if (!rows.length) return sendError(response, 409, 'Someone else has already filled this slot. The schedule has been refreshed.')
+      const claimed = rows[0]
+      await notifyOnce(`claim:${eventId}`, {
+        subject: `Mary's Team: ${name} signed up to help`,
+        heading: 'A task was filled',
+        intro: `${name} signed up to help with an item on Mary and Stu's schedule.`,
+        rows: [
+          { label: 'Helper', value: name },
+          { label: 'Phone', value: phone },
+          { label: 'Item', value: String(claimed.title) },
+          { label: 'When', value: `${String(claimed.dayLabel)} at ${readableTime(String(claimed.time))}` },
+          { label: 'Help', value: String(claimed.helpNeeded) },
+        ],
+      })
       return response.status(200).json({ id: eventId, helper: name })
     }
 
@@ -157,6 +300,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `))
+      await notifyAvailabilityMatches(entries)
       return response.status(201).json({ entries: savedRows.flat() })
     }
 
@@ -178,6 +322,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `
+      await notifyAvailabilityMatches([entry])
       return response.status(201).json({ entry: saved })
     }
 
@@ -224,6 +369,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `))
       if (savedRows.some((rows) => !rows.length)) return sendError(response, 404, 'One of these dates could not be found. Please refresh and try again.')
+      await notifyAvailabilityMatches(entries)
       return response.status(200).json({ entries: savedRows.flat() })
     }
 

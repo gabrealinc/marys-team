@@ -136,9 +136,9 @@ function App() {
     return () => { active = false; window.clearInterval(timer) }
   }, [])
 
-  async function saveHelper(eventId: string, name: string) {
+  async function saveHelper(eventId: string, name: string, phone: string) {
     try {
-      await apiRequest({ action: 'claimEvent', eventId, name })
+      await apiRequest({ action: 'claimEvent', eventId, name, phone })
       setTeamEvents((events) => events.map((event) => event.id === eventId ? { ...event, helper: name } : event))
       setSignupEvent(null)
       setMessage(`Thank you, ${name}. You are signed up to help.`)
@@ -310,9 +310,10 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   }, [onClose])
   return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button><h2 id="modal-title">{title}</h2>{children}</section></div>
 }
-function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: () => void; onSave: (id: string, name: string) => void }) {
+function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: () => void; onSave: (id: string, name: string, phone: string) => void }) {
   const [name, setName] = useState('')
-  return <ModalShell title="Sign up to help" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.dayLabel} at {eventTimeLabel(event.time)}</span><p>{event.helpNeeded}</p></div><form onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSave(event.id, name.trim()) }}><label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><p className="form-note">Your name will appear next to this task so others know it is covered.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit"><Check aria-hidden="true" /> Yes, sign me up</button></div></form></ModalShell>
+  const [phone, setPhone] = useState('')
+  return <ModalShell title="Sign up to help" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.dayLabel} at {eventTimeLabel(event.time)}</span><p>{event.helpNeeded}</p></div><form onSubmit={(e) => { e.preventDefault(); if (name.trim() && phone.trim()) onSave(event.id, name.trim(), phone.trim()) }}><label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><label htmlFor="helper-phone">Your phone number</label><input id="helper-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" required /><p className="form-note">Your name will appear next to this task, and Mary or Stu will receive your contact information.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit"><Check aria-hidden="true" /> Yes, sign me up</button></div></form></ModalShell>
 }
 function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (entries: Omit<Availability, 'id'>[]) => void }) {
   const days = getThirtyDays()
