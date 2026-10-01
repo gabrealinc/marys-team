@@ -124,7 +124,7 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .availability-list h3 { margin:0 0 5px; color:var(--pine-dark); font-size:1.05rem; }
 .availability-list p { margin:0; line-height:1.35; }
 .availability-time { width:max-content; color:var(--pine-dark); font-size:1rem; font-weight:850; }
-.availability-time.all-day { padding:4px 9px; border-radius:999px; background:var(--pine); color:#fff; font-size:.9rem; letter-spacing:.01em; }
+.availability-time.all-day { color:var(--pine-dark); font-size:1.08rem; font-weight:900; }
 .availability-help { margin-top:5px!important; color:var(--ink); font-size:.94rem; }
 .availability-phone { display:block; width:max-content; margin-top:5px; color:var(--muted); font-size:.82rem; font-weight:550; text-underline-offset:3px; }
 .availability-phone span { color:var(--muted); }
