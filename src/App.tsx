@@ -11,6 +11,7 @@ type SupportFilter = 'all' | 'ride' | 'mary' | 'home' | 'coco'
 type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string }
 type Availability = { id: string; name: string; phone: string; day: string; time: string; note: string }
 type ApprovalRequest = { status: string; requesterName: string; requesterPhone: string; title: string; dayLabel: string; time: string; endTime: string; helpNeeded: string }
+type PendingRequest = { id: string; eventId: string; requesterName: string; requesterPhone: string; notificationSentAt?: string; title: string; dayLabel: string; time: string; endTime: string; helpNeeded: string }
 
 const whoDetails = {
   Mary: { label: 'For Mary', icon: HeartHandshake },
@@ -135,9 +136,11 @@ function App() {
   const [approvalToken, setApprovalToken] = useState(() => new URLSearchParams(window.location.search).get('approve') || '')
   const [approvalRequest, setApprovalRequest] = useState<ApprovalRequest | null>(null)
   const [message, setMessage] = useState('')
+  const [organizer, setOrganizer] = useState(false)
+  const [showOrganizerLogin, setShowOrganizerLogin] = useState(false)
+  const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const visibleEvents = teamEvents.filter((event) => scheduleDates.has(event.date.slice(0, 8)) && (view === 'month' || (!isNoSupport(event.helpNeeded) && !event.helper && matchesSupportFilter(event, filter))))
-  const pendingEvents = teamEvents.filter((event) => event.requestPending)
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
   const allAvailabilityDates = new Set(availabilityDays.map((day) => day.dateKey))
@@ -150,6 +153,7 @@ function App() {
       const data = await apiRequest()
       setTeamEvents(data.events)
       setAvailability(data.availability)
+      setOrganizer(Boolean(data.organizer))
       setCloudError('')
     } catch (error) {
       setCloudError(error instanceof Error ? error.message : 'The shared schedule could not be reached.')
@@ -164,7 +168,10 @@ function App() {
       if (!active) return
       setTeamEvents(data.events)
       setAvailability(data.availability)
+      setOrganizer(Boolean(data.organizer))
       setCloudError('')
+      void apiRequest({ action: 'retryPendingNotifications' }).catch(() => undefined)
+      if (data.organizer) void loadPendingRequests()
     }).catch((error) => {
       if (active) setCloudError(error instanceof Error ? error.message : 'The shared schedule could not be reached.')
     }).finally(() => {
@@ -179,16 +186,54 @@ function App() {
     void apiRequest({ action: 'getApprovalRequest', token: approvalToken }).then((data) => setApprovalRequest(data.request)).catch((error) => setMessage(error instanceof Error ? error.message : 'This approval link is not available.'))
   }, [approvalToken])
 
+  async function loadPendingRequests() {
+    try {
+      const data = await apiRequest({ action: 'getPendingRequests' })
+      setPendingRequests(data.requests)
+    } catch {
+      setPendingRequests([])
+    }
+  }
+
+  async function organizerLogin(pin: string) {
+    await apiRequest({ action: 'organizerLogin', pin })
+    setOrganizer(true)
+    setShowOrganizerLogin(false)
+    await Promise.all([refreshData(), loadPendingRequests()])
+    setMessage('Organizer access is open on this device.')
+    window.setTimeout(() => setMessage(''), 5000)
+  }
+
+  async function decideRequest(requestId: string, decision: 'approve' | 'decline') {
+    try {
+      await apiRequest({ action: 'organizerDecideRequest', requestId, decision })
+      await Promise.all([refreshData(), loadPendingRequests()])
+      setMessage(decision === 'approve' ? 'The request is approved and confirmed.' : 'The request was declined and the time is open again.')
+      window.setTimeout(() => setMessage(''), 5000)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not update this request.')
+    }
+  }
+
+  async function organizerLogout() {
+    await apiRequest({ action: 'organizerLogout' })
+    setOrganizer(false)
+    setPendingRequests([])
+    setEditingEvent(null)
+  }
+
   async function saveHelper(eventId: string, name: string, phone: string) {
     try {
       const result = await apiRequest({ action: 'claimEvent', eventId, name, phone })
       setTeamEvents((events) => events.map((event) => event.id === eventId ? result.status === 'requested' ? { ...event, requestPending: true, requesterName: name } : { ...event, helper: name, requestPending: false, requesterName: undefined } : event))
       setSignupEvent(null)
-      setMessage(result.status === 'requested' ? `Thank you, ${name}. Your request was sent to Mary and Stu for approval.` : `Thank you, ${name}. You are confirmed.`)
+      setMessage(result.status === 'requested' ? result.emailSent ? `Thank you, ${name}. Your request was saved and Mary and Stu were emailed for approval.` : `Thank you, ${name}. Your request is saved and waiting for Mary or Stu to approve it.` : `Thank you, ${name}. You are confirmed.`)
       window.setTimeout(() => setMessage(''), 5000)
+      return true
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'We could not save your sign-up. Please try again.')
       await refreshData()
+      return false
     }
   }
   async function saveAvailability(entries: Omit<Availability, 'id'>[]) {
@@ -199,8 +244,10 @@ function App() {
       setShowAvailability(false)
       setMessage(`Thank you, ${entries[0].name}. Your availability was added for ${entries.length} ${entries.length === 1 ? 'date' : 'dates'}.`)
       window.setTimeout(() => setMessage(''), 5000)
+      return true
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'We could not save your availability. Please try again.')
+      return false
     }
   }
   async function updateAvailabilities(entries: Availability[]) {
@@ -229,13 +276,19 @@ function App() {
   }
   async function saveEvents(eventsToSave: TeamEvent[]) {
     try {
-      await apiRequest({ action: 'addEventBatch', events: eventsToSave })
-      setTeamEvents((events) => [...events, ...eventsToSave].sort((a, b) => a.date.localeCompare(b.date)))
+      const result = await apiRequest({ action: 'addEventBatch', events: eventsToSave })
+      const savedEvents = Array.isArray(result.events) && result.events.length ? result.events : eventsToSave
+      setTeamEvents((events) => {
+        const savedIds = new Set(savedEvents.map((event: TeamEvent) => event.id))
+        return [...events.filter((event) => !savedIds.has(event.id)), ...savedEvents].sort((a, b) => a.date.localeCompare(b.date))
+      })
       setShowAdd(false)
       setMessage(eventsToSave.length === 1 ? 'The new item was added to the shared schedule.' : `${eventsToSave.length} weekly items were added to the shared schedule.`)
       window.setTimeout(() => setMessage(''), 5000)
+      return true
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'We could not save this item. Please try again.')
+      return false
     }
   }
   async function updateEvent(event: TeamEvent) {
@@ -295,7 +348,7 @@ function App() {
     <div className="app-shell">
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Mary’s Team home"><span className="brand-mark"><HeartHandshake aria-hidden="true" /></span><span>Mary’s Team</span></a>
-        <div className="header-actions"><button className="header-add" type="button" onClick={() => setShowAdd(true)}>+ Add something</button><button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> How to use this page</button></div>
+        <div className="header-actions">{organizer ? <button className="header-add" type="button" onClick={() => setShowAdd(true)}>+ Add something</button> : <button className="organizer-link" type="button" onClick={() => setShowOrganizerLogin(true)}>Mary & Stu</button>}<button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> How to use this page</button></div>
       </header>
       <main id="top">
         <section className="welcome" aria-labelledby="page-title">
@@ -303,11 +356,11 @@ function App() {
           <div className="quick-actions" role="group" aria-label="Page actions">
             <button className="support-button" type="button" onClick={showSupportNeeded}><ListChecks aria-hidden="true" /> See where support is needed</button>
             <button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Tell us when you’re free</button>
-            <button className="primary-button" type="button" onClick={() => setShowAdd(true)}>+ Add an appointment or task</button>
+            {organizer ? <button className="primary-button" type="button" onClick={() => setShowAdd(true)}>+ Add an appointment or task</button> : <button className="primary-button" type="button" onClick={() => setShowOrganizerLogin(true)}>Mary & Stu organizer</button>}
           </div>
         </section>
         <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>Want to be there?</strong> Choose an open time and enter your name. No account is needed.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
-        {pendingEvents.length > 0 && <div className="approval-banner" role="status"><Clock3 aria-hidden="true" /><div><strong>{pendingEvents.length} {pendingEvents.length === 1 ? 'request is' : 'requests are'} waiting for approval</strong><p>{pendingEvents.map((event) => `${event.requesterName} – ${event.title}`).join(', ')}</p><small>Mary or Stu can approve each request from the link in their email.</small></div><button type="button" onClick={showSupportNeeded}>View requests</button></div>}
+        {organizer && <OrganizerPanel requests={pendingRequests} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
@@ -324,17 +377,17 @@ function App() {
               const WhoIcon = whoDetails[event.forWho].icon
               const helper = helpers[event.id] || event.helper
               const suggestedHelpers = matchingAvailability(event, availability)
-              return <article className={`event-card ${event.category}`} id={`event-${event.id}`} key={event.id} onClick={() => setEditingEvent(event)}>
+              return <article className={`event-card ${event.category} ${organizer ? 'organizer-editable' : ''}`} id={`event-${event.id}`} key={event.id} onClick={organizer ? () => setEditingEvent(event) : undefined}>
                 <div className="event-date"><span className="category-label"><WhoIcon aria-hidden="true" /> {whoDetails[event.forWho].label}</span><p>{event.dayLabel}</p><strong><Clock3 aria-hidden="true" /> {eventTimeRangeLabel(event)}</strong>{event.repeatGroupId && <small className="repeat-label"><Repeat2 aria-hidden="true" /> Repeats weekly</small>}</div>
                 <div className="event-info"><h3>{event.title}</h3><p>{event.details}</p>{event.location && <p className="location">{event.location}</p>}<div className={`needed ${isNoSupport(event.helpNeeded) ? 'busy-needed' : ''}`}><ListChecks aria-hidden="true" /><span><small>{isNoSupport(event.helpNeeded) ? 'Busy time' : 'Support requested'}</small><strong>{isNoSupport(event.helpNeeded) ? 'Please do not stop by during this time.' : event.helpNeeded}</strong></span></div>{!helper && !event.requestPending && suggestedHelpers.length > 0 && !isNoSupport(event.helpNeeded) && <div className="suggested-help"><HeartHandshake aria-hidden="true" /><span><small>People available then</small><strong>{suggestedHelpers.map((entry) => entry.name).join(', ')}</strong><em>They can choose this time if it works for them.</em></span></div>}</div>
                 <div className="event-actions">
-                  {isNoSupport(event.helpNeeded) ? <div className="busy-status"><Clock3 aria-hidden="true" /><span><small>Status</small><strong>Busy</strong></span></div> : helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : event.requestPending ? <div className="requested"><Clock3 aria-hidden="true" /><span><small>Awaiting approval</small><strong>Requested by {event.requesterName}</strong></span></div> : <button className="primary-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setSignupEvent(event) }}><HeartHandshake aria-hidden="true" /> I can support</button>}
+                  {isNoSupport(event.helpNeeded) ? <div className="busy-status"><Clock3 aria-hidden="true" /><span><small>Status</small><strong>Busy</strong></span></div> : helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : event.requestPending ? <div className="requested"><Clock3 aria-hidden="true" /><span><small>Awaiting approval</small><strong>{organizer && event.requesterName ? `Requested by ${event.requesterName}` : 'Request waiting for Mary or Stu'}</strong></span></div> : <button className="primary-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setSignupEvent(event) }}><HeartHandshake aria-hidden="true" /> I can support</button>}
                   <button className="calendar-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); addToCalendar(event) }}><Download aria-hidden="true" /> Add to my calendar</button>
-                  <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setEditingEvent(event) }}><Pencil aria-hidden="true" /> View or edit details</button>
+                  {organizer && <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setEditingEvent(event) }}><Pencil aria-hidden="true" /> View or edit details</button>}
                 </div>
               </article>
-            }) : <EmptySchedule onAdd={() => setShowAdd(true)} supportOnly={view === 'upcoming'} />}
-          </div> : <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setEditingEvent(event) }} />)}
+            }) : <EmptySchedule onAdd={() => organizer ? setShowAdd(true) : setShowOrganizerLogin(true)} supportOnly={view === 'upcoming'} />}
+          </div> : <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={organizer ? (eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setEditingEvent(event) } : undefined} />)}
         </section>
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Who is available</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add my availability</button></div>
@@ -351,6 +404,7 @@ function App() {
       {showAdd && <AddEventModal onClose={() => setShowAdd(false)} onSave={saveEvents} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {approvalRequest && <ApprovalModal request={approvalRequest} onClose={() => setApprovalRequest(null)} onApprove={approveSupportRequest} />}
+      {showOrganizerLogin && <OrganizerLoginModal onClose={() => setShowOrganizerLogin(false)} onLogin={organizerLogin} />}
     </div>
   )
 }
@@ -375,7 +429,7 @@ function EmptySchedule({ onAdd, supportOnly = false }: { onAdd: () => void; supp
   return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No open support is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'This is good news. Check This Month to see the full family schedule.' : 'Mary or Stu can add the first appointment or task.'}</p>{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
 }
 
-function WeekCalendar({ events, helpers, availability, onOpen }: { events: TeamEvent[]; helpers: Record<string, string>; availability: Availability[]; onOpen: (eventId: string) => void }) {
+function WeekCalendar({ events, helpers, availability, onOpen }: { events: TeamEvent[]; helpers: Record<string, string>; availability: Availability[]; onOpen?: (eventId: string) => void }) {
   const days = getThirtyDays().slice(0, 7)
   const weekDays = days.map((day) => ({
     ...day,
@@ -386,7 +440,7 @@ function WeekCalendar({ events, helpers, availability, onOpen }: { events: TeamE
   return <div className="week-calendar" role="region" aria-label={`Calendar for today through ${lastDay}`}>{weekDays.map(({ shortDay, number, fullDay, dateKey, events: dayEvents, availablePeople }) => <section className={`calendar-day ${dayEvents.length ? 'has-events' : ''}`} key={dateKey} aria-label={fullDay}><div className="calendar-date"><span>{shortDay}</span><strong>{number}</strong></div><div className="calendar-items">{dayEvents.length ? dayEvents.map((event) => {
     const helper = helpers[event.id] || event.helper
     const matches = isNoSupport(event.helpNeeded) ? [] : availablePeople.filter((entry) => availabilityMatchesTime(entry.time, event.time, event.endTime))
-    return <button type="button" key={event.id} onClick={() => onOpen(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeRangeLabel(event)}</small>{isNoSupport(event.helpNeeded) ? <em>Busy</em> : helper ? <em>Confirmed with {helper}</em> : event.requestPending ? <em>Requested by {event.requesterName} – awaiting approval</em> : <em>{event.helpNeeded}</em>}{!helper && !event.requestPending && matches.length > 0 && <em className="availability-match">Available then: {matches.map((entry) => entry.name).join(', ')}</em>}</span></button>
+    return <button type="button" key={event.id} disabled={!onOpen} onClick={() => onOpen?.(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeRangeLabel(event)}</small>{isNoSupport(event.helpNeeded) ? <em>Busy</em> : helper ? <em>Confirmed with {helper}</em> : event.requestPending ? <em>Request waiting for approval</em> : <em>{event.helpNeeded}</em>}{!helper && !event.requestPending && matches.length > 0 && <em className="availability-match">Available then: {matches.map((entry) => entry.name).join(', ')}</em>}</span></button>
   }) : <p>No plans.</p>}</div></section>)}</div>
 }
 
@@ -398,12 +452,37 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   }, [onClose])
   return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button><h2 id="modal-title">{title}</h2>{children}</section></div>
 }
-function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: () => void; onSave: (id: string, name: string, phone: string) => void }) {
+function OrganizerPanel({ requests, onDecide, onLogout }: { requests: PendingRequest[]; onDecide: (id: string, decision: 'approve' | 'decline') => void; onLogout: () => void }) {
+  return <section className="organizer-panel" aria-labelledby="organizer-title"><div className="organizer-heading"><div><p className="eyebrow">Private organizer area</p><h2 id="organizer-title">Mary & Stu</h2></div><button className="text-button" type="button" onClick={onLogout}>Close organizer access</button></div>{requests.length ? <><p className="organizer-intro">Review each request below. These names and phone numbers are only visible after entering the organizer PIN.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a><p>{request.title}</p><small>{request.dayLabel}, {eventTimeLabel(request.time)} – {eventTimeLabel(request.endTime)} · {request.helpNeeded}</small></div><div><button className="text-button" type="button" onClick={() => onDecide(request.id, 'decline')}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div>}</section>
+}
+
+function OrganizerLoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: (pin: string) => Promise<void> }) {
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    setSaving(true)
+    setError('')
+    try { await onLogin(pin) } catch (loginError) { setError(loginError instanceof Error ? loginError.message : 'Organizer access could not be opened.'); setSaving(false) }
+  }
+  return <ModalShell title="Mary & Stu organizer" onClose={onClose}><p className="modal-intro">Enter the family organizer PIN to review requests or change the schedule.</p><form onSubmit={submit}><label htmlFor="organizer-pin">Organizer PIN</label><input id="organizer-pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} autoFocus required />{error && <p className="field-error" role="alert">{error}</p>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving || pin.length < 4}>{saving ? 'Opening…' : 'Open organizer area'}</button></div></form></ModalShell>
+}
+function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: () => void; onSave: (id: string, name: string, phone: string) => Promise<boolean> }) {
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
-  return <ModalShell title="Request this time" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.dayLabel}, {eventTimeRangeLabel(event)}</span><p>{event.helpNeeded}</p></div><form onSubmit={(e) => { e.preventDefault(); if (name.trim() && phone.trim()) onSave(event.id, name.trim(), phone.trim()) }}><label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><label htmlFor="helper-phone">Your phone number</label><input id="helper-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" required /><p className="form-note">Mary and Stu will receive your request and contact information. This time is not confirmed until one of them approves it.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit"><Check aria-hidden="true" /> Request this time</button></div></form></ModalShell>
+  const [saving, setSaving] = useState(false)
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (saving || !name.trim() || !phone.trim()) return
+    setSaving(true)
+    const saved = await onSave(eventId, name.trim(), phone.trim())
+    if (!saved) setSaving(false)
+  }
+  const eventId = event.id
+  return <ModalShell title="Request this time" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.dayLabel}, {eventTimeRangeLabel(event)}</span><p>{event.helpNeeded}</p></div><form onSubmit={submit}><label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><label htmlFor="helper-phone">Your phone number</label><input id="helper-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" required /><p className="form-note">Mary and Stu will receive your request and contact information. This time is not confirmed until one of them approves it.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Saving request…' : 'Request this time'}</button></div></form></ModalShell>
 }
-function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (entries: Omit<Availability, 'id'>[]) => void }) {
+function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (entries: Omit<Availability, 'id'>[]) => Promise<boolean> }) {
   const days = getThirtyDays()
   const firstDate = days[0].dateKey
   const firstWeekday = new Date(`${firstDate.slice(0, 4)}-${firstDate.slice(4, 6)}-${firstDate.slice(6, 8)}T12:00:00`).getDay()
@@ -423,6 +502,7 @@ function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (
   const [startTime, setStartTime] = useState('12:00')
   const [endTime, setEndTime] = useState('15:00')
   const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
 
   function datesForSelection() {
     if (mode === 'dates') return selectedDates
@@ -437,10 +517,12 @@ function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (
   const chosenDates = datesForSelection()
   const selectionIsValid = chosenDates.length > 0 && (timeMode === 'all-day' || endTime > startTime)
 
-  function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (!selectionIsValid) return
-    onSave(chosenDates.map((day) => ({ name, phone, day, time: timeMode === 'all-day' ? 'anytime' : `${startTime}-${endTime}`, note })))
+    if (!selectionIsValid || saving) return
+    setSaving(true)
+    const saved = await onSave(chosenDates.map((day) => ({ name, phone, day, time: timeMode === 'all-day' ? 'anytime' : `${startTime}-${endTime}`, note })))
+    if (!saved) setSaving(false)
   }
 
   return <ModalShell title="Add my availability" onClose={onClose}>
@@ -476,7 +558,7 @@ function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (
       {timeMode === 'hours' && endTime <= startTime && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
       <label htmlFor="available-note">What are you comfortable supporting?</label>
       <select id="available-note" required value={note} onChange={(e) => setNote(e.target.value)}><option value="">Choose one</option>{helpChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>
-      <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!selectionIsValid}><Check aria-hidden="true" /> Add {chosenDates.length || ''} {chosenDates.length === 1 ? 'date' : 'dates'}</button></div>
+      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={!selectionIsValid || saving} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : <>Add {chosenDates.length || ''} {chosenDates.length === 1 ? 'date' : 'dates'}</>}</button></div>
     </form>
   </ModalShell>
 }
@@ -533,9 +615,10 @@ function compactEventDate(date: string, time: string) {
   return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
 }
 
-function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (events: TeamEvent[]) => void }) {
+function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
   const [form, setForm] = useState(() => ({ title: '', date: new Date().toISOString().slice(0, 10), time: '12:00', endTime: '13:00', forWho: 'Mary' as ForWho, helpNeeded: 'Need a ride', details: '', location: '' }))
   const [repeats, setRepeats] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [repeatThrough, setRepeatThrough] = useState(() => {
     const repeatDefault = new Date()
     repeatDefault.setDate(repeatDefault.getDate() + 28)
@@ -548,9 +631,9 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
     setForm((current) => ({ ...current, time, endTime: endTime > time ? endTime : current.endTime }))
   }
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!timeIsValid) return
+    if (!timeIsValid || saving) return
     const dates: string[] = []
     const cursor = new Date(`${form.date}T12:00:00`)
     const finalDate = new Date(`${repeats ? (repeatThrough < form.date ? form.date : repeatThrough) : form.date}T12:00:00`)
@@ -559,7 +642,10 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
       cursor.setDate(cursor.getDate() + 7)
     }
     const repeatGroupId = repeats ? crypto.randomUUID() : undefined
-    onSave(dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' : 'family', forWho: form.forWho, date: compactEventDate(date, form.time), dayLabel: dayLabelForDate(date), time: form.time, endTime: form.endTime, title: form.title, details: form.details || 'See Mary or Stu for details.', location: form.location || undefined, helpNeeded: form.helpNeeded, repeatGroupId })))
+    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.time), dayLabel: dayLabelForDate(date), time: form.time, endTime: form.endTime, title: form.title, details: form.details || 'See Mary or Stu for details.', location: form.location || undefined, helpNeeded: form.helpNeeded, repeatGroupId }))
+    setSaving(true)
+    const saved = await onSave(events)
+    if (!saved) setSaving(false)
   }
 
   return <ModalShell title="Add an appointment or task" onClose={onClose}><p className="modal-intro">Add one item or repeat it every week.</p><form onSubmit={submit}>
@@ -572,7 +658,7 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
     <label htmlFor="event-help">What support is needed?</label><select id="event-help" value={form.forWho === 'Stu' ? 'Spend time with Mary' : form.helpNeeded} disabled={form.forWho === 'Stu'} onChange={(event) => setForm({ ...form, helpNeeded: event.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{form.forWho === 'Stu' && <p className="form-note">When Stu is out, this automatically becomes time to spend with Mary.</p>}
     <label htmlFor="event-location">Where? <span>(optional)</span></label><input id="event-location" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Clinic name, home, or address" />
     <label htmlFor="event-details">Anything else people should know? <span>(optional)</span></label><textarea id="event-details" value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder="Add a short note" />
-    <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid}><Check aria-hidden="true" /> {repeats ? 'Add weekly schedule' : 'Add to the schedule'}</button></div>
+    <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid || saving} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : repeats ? 'Add weekly schedule' : 'Add to the schedule'}</button></div>
   </form></ModalShell>
 }
 

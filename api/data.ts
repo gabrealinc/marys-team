@@ -1,6 +1,6 @@
 import { neon } from '@neondatabase/serverless'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { randomUUID } from 'node:crypto'
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { sendTeamNotification } from '../lib/email.js'
 
 type Category = 'appointment' | 'company' | 'home' | 'family' | 'dad'
@@ -27,6 +27,18 @@ type AvailabilityInput = {
   day: string
   time: string
   note: string
+}
+
+type SupportRequestNotification = {
+  id: unknown
+  approvalToken: unknown
+  requesterName: unknown
+  requesterPhone: unknown
+  title: unknown
+  dayLabel: unknown
+  time: unknown
+  endTime: unknown
+  helpNeeded: unknown
 }
 
 function database() {
@@ -83,10 +95,12 @@ async function ensureSchema() {
       requester_phone TEXT NOT NULL,
       approval_token TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL DEFAULT 'pending',
+      notification_sent_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       decided_at TIMESTAMPTZ
     )
   `
+  await sql`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMPTZ`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS one_pending_request_per_event ON support_requests(event_id) WHERE status = 'pending'`
   await sql`
     CREATE TABLE IF NOT EXISTS notification_log (
@@ -98,6 +112,22 @@ async function ensureSchema() {
 
 function clean(value: unknown, maxLength = 500) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
+}
+
+function organizerSession(expiration: string, secret: string) {
+  return `${expiration}.${createHmac('sha256', secret).update(expiration).digest('hex')}`
+}
+
+function organizerAuthorized(request: VercelRequest) {
+  const secret = process.env.ORGANIZER_SESSION_SECRET?.trim()
+  const cookie = request.cookies?.marys_organizer
+  if (!secret || !cookie) return false
+  const [expiration, signature] = cookie.split('.')
+  if (!expiration || !signature || Number(expiration) < Date.now()) return false
+  const expected = organizerSession(expiration, secret)
+  const actualBuffer = Buffer.from(cookie)
+  const expectedBuffer = Buffer.from(expected)
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer)
 }
 
 function sendError(response: VercelResponse, status: number, message: string) {
@@ -177,6 +207,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
   try {
     await ensureSchema()
     const sql = database()
+    const isOrganizer = organizerAuthorized(request)
 
     async function reserveNotification(key: string) {
       const rows = await sql`
@@ -203,6 +234,26 @@ export default async function handler(request: VercelRequest, response: VercelRe
         console.error('Notification email failed', error)
         return false
       }
+    }
+
+    async function notifySupportRequest(supportRequest: SupportRequestNotification) {
+      const approvalUrl = `https://marys-team.vercel.app/?approve=${encodeURIComponent(String(supportRequest.approvalToken))}`
+      const emailSent = await notifyOnce(`request:${String(supportRequest.id)}`, {
+        subject: `Mary's Team: approval requested by ${String(supportRequest.requesterName)}`,
+        heading: 'A support request needs approval',
+        intro: `${String(supportRequest.requesterName)} would like to join an open time. Nothing has been confirmed yet.`,
+        rows: [
+          { label: 'Person', value: String(supportRequest.requesterName) },
+          { label: 'Phone', value: String(supportRequest.requesterPhone) },
+          { label: 'Schedule item', value: String(supportRequest.title) },
+          { label: 'When', value: `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.time))} to ${readableTime(String(supportRequest.endTime))}` },
+          { label: 'Support requested', value: String(supportRequest.helpNeeded) },
+        ],
+        actionUrl: approvalUrl,
+        actionLabel: 'Review and approve request',
+      })
+      if (emailSent) await sql`UPDATE support_requests SET notification_sent_at = NOW() WHERE id = ${String(supportRequest.id)}`
+      return emailSent
     }
 
     async function findAvailabilityMatches(entries: AvailabilityInput[]) {
@@ -322,7 +373,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
         FROM availability
         ORDER BY created_at DESC
       `
-      return response.status(200).json({ events, availability })
+      const publicEvents = events.map((event) => isOrganizer ? event : { ...event, requesterName: undefined })
+      return response.status(200).json({ events: publicEvents, availability, organizer: isOrganizer })
     }
 
     if (request.method !== 'POST') {
@@ -332,15 +384,65 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     const action = clean(request.body?.action, 30)
 
+    if (action === 'organizerLogin') {
+      const configuredPin = process.env.ORGANIZER_PIN?.trim()
+      const secret = process.env.ORGANIZER_SESSION_SECRET?.trim()
+      const pin = clean(request.body?.pin, 20)
+      if (!configuredPin || !secret) return sendError(response, 503, 'Organizer access is not connected yet.')
+      const entered = Buffer.from(pin)
+      const expected = Buffer.from(configuredPin)
+      if (entered.length !== expected.length || !timingSafeEqual(entered, expected)) return sendError(response, 401, 'That organizer PIN is not correct.')
+      const expiration = String(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      response.setHeader('Set-Cookie', `marys_organizer=${organizerSession(expiration, secret)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`)
+      return response.status(200).json({ organizer: true })
+    }
+
+    if (action === 'organizerLogout') {
+      response.setHeader('Set-Cookie', 'marys_organizer=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0')
+      return response.status(200).json({ organizer: false })
+    }
+
+    if (action === 'getPendingRequests') {
+      if (!isOrganizer) return sendError(response, 401, 'Organizer access is required.')
+      const requests = await sql`
+        SELECT support_requests.id, support_requests.event_id AS "eventId",
+          support_requests.requester_name AS "requesterName", support_requests.requester_phone AS "requesterPhone",
+          support_requests.notification_sent_at AS "notificationSentAt", team_events.title,
+          team_events.day_label AS "dayLabel", team_events.event_time AS time,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded"
+        FROM support_requests
+        JOIN team_events ON team_events.id = support_requests.event_id
+        WHERE support_requests.status = 'pending'
+        ORDER BY support_requests.created_at ASC
+      `
+      return response.status(200).json({ requests })
+    }
+
+    if (action === 'organizerDecideRequest') {
+      if (!isOrganizer) return sendError(response, 401, 'Organizer access is required.')
+      const requestId = clean(request.body?.requestId, 80)
+      const decision = clean(request.body?.decision, 20)
+      if (!requestId || !['approve', 'decline'].includes(decision)) return sendError(response, 400, 'Choose a request and a decision.')
+      const requests = await sql`SELECT id, event_id AS "eventId", requester_name AS "requesterName", requester_phone AS "requesterPhone" FROM support_requests WHERE id = ${requestId} AND status = 'pending'`
+      if (!requests.length) return sendError(response, 409, 'This request was already handled.')
+      const supportRequest = requests[0]
+      if (decision === 'approve') {
+        const updated = await sql`UPDATE team_events SET helper = ${String(supportRequest.requesterName)}, helper_phone = ${String(supportRequest.requesterPhone)} WHERE id = ${String(supportRequest.eventId)} AND (helper IS NULL OR helper = '') RETURNING id`
+        if (!updated.length) return sendError(response, 409, 'This time already has someone confirmed.')
+      }
+      await sql`UPDATE support_requests SET status = ${decision === 'approve' ? 'approved' : 'declined'}, decided_at = NOW() WHERE id = ${requestId}`
+      return response.status(200).json({ id: requestId, decision })
+    }
+
     if (action === 'sendNotificationTest') {
-      if (process.env.NOTIFICATION_MODE === 'live') return sendError(response, 404, 'The test email is no longer available.')
-      const key = 'setup:test-email:v1'
+      if (process.env.NOTIFICATION_MODE === 'live' && !isOrganizer) return sendError(response, 401, 'Organizer access is required to send a test email.')
+      const key = `setup:test-email:v2:${process.env.NOTIFICATION_MODE || 'test'}`
       if (!await reserveNotification(key)) return response.status(200).json({ sent: true, alreadySent: true })
       try {
         const sent = await sendTeamNotification({
           subject: "Mary's Team email test",
           heading: 'Email notifications are connected',
-          intro: "This is a test only. Mary and Stu have not been notified yet.",
+          intro: "This is a test only. It confirms that Mary's Team can send schedule and approval notifications.",
           rows: [
             { label: 'Sign-up alerts', value: 'Ready for testing' },
             { label: 'Availability matches', value: 'Ready for testing' },
@@ -359,6 +461,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (action === 'addEvent' || action === 'addEventBatch') {
+      if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const items: unknown[] = action === 'addEventBatch'
         ? (Array.isArray(request.body?.events) ? request.body.events.slice(0, 52) : [])
         : [request.body?.event]
@@ -367,6 +470,11 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const savedRows = await Promise.all(events.map((event) => sql`
         INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, repeat_group_id, for_who)
         VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.repeatGroupId || null}, ${event.forWho})
+        ON CONFLICT (id) DO UPDATE SET
+          category = EXCLUDED.category, event_date = EXCLUDED.event_date, day_label = EXCLUDED.day_label,
+          event_time = EXCLUDED.event_time, end_time = EXCLUDED.end_time, title = EXCLUDED.title,
+          details = EXCLUDED.details, location = EXCLUDED.location, help_needed = EXCLUDED.help_needed,
+          repeat_group_id = EXCLUDED.repeat_group_id, for_who = EXCLUDED.for_who
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
           event_time AS time, end_time AS "endTime", title, details, location,
           help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho"
@@ -375,6 +483,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (action === 'updateEvent') {
+      if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const event = parseEventInput(request.body?.event as Partial<TeamEventInput> | undefined)
       if (!eventIsValid(event)) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
       const rows = await sql`
@@ -395,6 +504,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (action === 'deleteEvent') {
+      if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const eventId = clean(request.body?.eventId, 80)
       if (!eventId) return sendError(response, 400, 'Choose the schedule item to remove.')
       const rows = await sql`DELETE FROM team_events WHERE id = ${eventId} RETURNING id`
@@ -437,6 +547,22 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ id: updated[0].id, helper: updated[0].helper })
     }
 
+    if (action === 'retryPendingNotifications') {
+      const pendingRequests = await sql`
+        SELECT support_requests.id, support_requests.approval_token AS "approvalToken",
+          support_requests.requester_name AS "requesterName", support_requests.requester_phone AS "requesterPhone",
+          team_events.title, team_events.day_label AS "dayLabel", team_events.event_time AS time,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded"
+        FROM support_requests
+        JOIN team_events ON team_events.id = support_requests.event_id
+        WHERE support_requests.status = 'pending' AND support_requests.notification_sent_at IS NULL
+        ORDER BY support_requests.created_at ASC
+        LIMIT 5
+      `
+      const results = await Promise.all(pendingRequests.map((pendingRequest) => notifySupportRequest(pendingRequest as SupportRequestNotification)))
+      return response.status(200).json({ pending: pendingRequests.length, sent: results.filter(Boolean).length })
+    }
+
     if (action === 'claimEvent') {
       const eventId = clean(request.body?.eventId, 80)
       const name = clean(request.body?.name, 120)
@@ -460,26 +586,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
         RETURNING id
       `
       if (!rows.length) return sendError(response, 409, 'Someone has already requested this time. Mary or Stu can approve that request first.')
-      const approvalUrl = `https://marys-team.vercel.app/?approve=${encodeURIComponent(approvalToken)}`
-      const emailSent = await notifyOnce(`request:${requestId}`, {
-        subject: `Mary's Team: approval requested by ${name}`,
-        heading: 'A support request needs approval',
-        intro: `${name} would like to join an open time. Nothing has been confirmed yet.`,
-        rows: [
-          { label: 'Person', value: name },
-          { label: 'Phone', value: phone },
-          { label: 'Schedule item', value: String(selectedEvent.title) },
-          { label: 'When', value: `${String(selectedEvent.dayLabel)} from ${readableTime(String(selectedEvent.time))} to ${readableTime(String(selectedEvent.endTime))}` },
-          { label: 'Support requested', value: String(selectedEvent.helpNeeded) },
-        ],
-        actionUrl: approvalUrl,
-        actionLabel: 'Review and approve request',
-      })
-      if (!emailSent) {
-        await sql`DELETE FROM support_requests WHERE id = ${requestId}`
-        return sendError(response, 503, 'Approval email is not connected yet. Please call or text Mary or Stu for this time.')
-      }
-      return response.status(202).json({ id: eventId, status: 'requested', requesterName: name })
+      const emailSent = await notifySupportRequest({ id: requestId, approvalToken, requesterName: name, requesterPhone: phone, title: selectedEvent.title, dayLabel: selectedEvent.dayLabel, time: selectedEvent.time, endTime: selectedEvent.endTime, helpNeeded: selectedEvent.helpNeeded })
+      return response.status(202).json({ id: eventId, status: 'requested', requesterName: name, emailSent })
     }
 
     if (action === 'addAvailabilityBatch') {
