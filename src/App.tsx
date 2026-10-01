@@ -185,7 +185,7 @@ function App() {
       </header>
       <main id="top">
         <section className="welcome" aria-labelledby="page-title">
-          <div><p className="eyebrow">Family schedule and help list</p><h1 id="page-title">Mary and Stu’s week</h1><p className="intro">See what’s coming up and choose something if you can help.</p></div>
+          <div><p className="eyebrow">Family schedule and help list</p><h1 id="page-title">The Greenbergs’ Schedule</h1><p className="intro">See what’s coming up and choose something if you can help.</p></div>
           <div className="quick-actions" aria-label="Page actions">
             <button className="primary-button" type="button" onClick={() => setShowAdd(true)}>+ Add an appointment or task</button>
             <button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Tell us when you’re free</button>
