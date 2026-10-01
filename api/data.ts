@@ -18,6 +18,7 @@ type TeamEventInput = {
 type AvailabilityInput = {
   id: string
   name: string
+  phone: string
   day: string
   time: string
   note: string
@@ -50,12 +51,14 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS availability (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
       available_day TEXT NOT NULL,
       available_time TEXT NOT NULL,
       note TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`
 }
 
 function clean(value: unknown, maxLength = 500) {
@@ -82,7 +85,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ORDER BY event_date ASC, created_at ASC
       `
       const availability = await sql`
-        SELECT id, name, available_day AS day, available_time AS time, note
+        SELECT id, name, phone, available_day AS day, available_time AS time, note
         FROM availability
         ORDER BY created_at DESC
       `
@@ -141,17 +144,18 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const entries = items.map((item) => ({
         id: clean(item.id, 80),
         name: clean(item.name, 120),
+        phone: clean(item.phone, 40),
         day: clean(item.day, 120),
         time: clean(item.time, 120),
         note: clean(item.note, 500),
       }))
-      if (!entries.length || entries.some((entry) => !entry.id || !entry.name || !entry.day || !entry.time || !entry.note)) {
-        return sendError(response, 400, 'Please complete the dates, times, and kind of help.')
+      if (!entries.length || entries.some((entry) => !entry.id || !entry.name || !entry.phone || !entry.day || !entry.time || !entry.note)) {
+        return sendError(response, 400, 'Please complete your name, phone number, dates, times, and kind of help.')
       }
       const savedRows = await Promise.all(entries.map((entry) => sql`
-        INSERT INTO availability (id, name, available_day, available_time, note)
-        VALUES (${entry.id}, ${entry.name}, ${entry.day}, ${entry.time}, ${entry.note})
-        RETURNING id, name, available_day AS day, available_time AS time, note
+        INSERT INTO availability (id, name, phone, available_day, available_time, note)
+        VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
+        RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `))
       return response.status(201).json({ entries: savedRows.flat() })
     }
@@ -161,19 +165,81 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const entry = {
         id: clean(item?.id, 80),
         name: clean(item?.name, 120),
+        phone: clean(item?.phone, 40),
         day: clean(item?.day, 120),
         time: clean(item?.time, 120),
         note: clean(item?.note, 500),
       }
-      if (!entry.id || !entry.name || !entry.day || !entry.time) {
-        return sendError(response, 400, 'Please add your name, day, and time.')
+      if (!entry.id || !entry.name || !entry.phone || !entry.day || !entry.time) {
+        return sendError(response, 400, 'Please add your name, phone number, day, and time.')
       }
       const [saved] = await sql`
-        INSERT INTO availability (id, name, available_day, available_time, note)
-        VALUES (${entry.id}, ${entry.name}, ${entry.day}, ${entry.time}, ${entry.note})
-        RETURNING id, name, available_day AS day, available_time AS time, note
+        INSERT INTO availability (id, name, phone, available_day, available_time, note)
+        VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
+        RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `
       return response.status(201).json({ entry: saved })
+    }
+
+    if (action === 'updateAvailability') {
+      const item = request.body?.entry as Partial<AvailabilityInput> | undefined
+      const entry = {
+        id: clean(item?.id, 80),
+        name: clean(item?.name, 120),
+        phone: clean(item?.phone, 40),
+        day: clean(item?.day, 120),
+        time: clean(item?.time, 120),
+        note: clean(item?.note, 500),
+      }
+      if (!entry.id || !entry.name || !entry.phone || !entry.day || !entry.time || !entry.note) {
+        return sendError(response, 400, 'Please complete your name, phone number, date, time, and kind of help.')
+      }
+      const rows = await sql`
+        UPDATE availability
+        SET name = ${entry.name}, phone = ${entry.phone}, available_day = ${entry.day}, available_time = ${entry.time}, note = ${entry.note}
+        WHERE id = ${entry.id}
+        RETURNING id, name, phone, available_day AS day, available_time AS time, note
+      `
+      if (!rows.length) return sendError(response, 404, 'This availability could not be found. The page may have changed.')
+      return response.status(200).json({ entry: rows[0] })
+    }
+
+    if (action === 'updateAvailabilityBatch') {
+      const items = Array.isArray(request.body?.entries) ? request.body.entries.slice(0, 31) as Partial<AvailabilityInput>[] : []
+      const entries = items.map((item) => ({
+        id: clean(item.id, 80),
+        name: clean(item.name, 120),
+        phone: clean(item.phone, 40),
+        day: clean(item.day, 120),
+        time: clean(item.time, 120),
+        note: clean(item.note, 500),
+      }))
+      if (!entries.length || entries.some((entry) => !entry.id || !entry.name || !entry.phone || !entry.day || !entry.time || !entry.note)) {
+        return sendError(response, 400, 'Please complete your name, phone number, dates, times, and kind of help.')
+      }
+      const savedRows = await Promise.all(entries.map((entry) => sql`
+        UPDATE availability
+        SET name = ${entry.name}, phone = ${entry.phone}, available_day = ${entry.day}, available_time = ${entry.time}, note = ${entry.note}
+        WHERE id = ${entry.id}
+        RETURNING id, name, phone, available_day AS day, available_time AS time, note
+      `))
+      if (savedRows.some((rows) => !rows.length)) return sendError(response, 404, 'One of these dates could not be found. Please refresh and try again.')
+      return response.status(200).json({ entries: savedRows.flat() })
+    }
+
+    if (action === 'deleteAvailability') {
+      const availabilityId = clean(request.body?.availabilityId, 80)
+      if (!availabilityId) return sendError(response, 400, 'Choose the availability you want to remove.')
+      const rows = await sql`DELETE FROM availability WHERE id = ${availabilityId} RETURNING id`
+      if (!rows.length) return sendError(response, 404, 'This availability was already removed.')
+      return response.status(200).json({ id: availabilityId })
+    }
+
+    if (action === 'deleteAvailabilityBatch') {
+      const availabilityIds = Array.isArray(request.body?.availabilityIds) ? request.body.availabilityIds.slice(0, 31).map((id: unknown) => clean(id, 80)).filter(Boolean) : []
+      if (!availabilityIds.length) return sendError(response, 400, 'Choose at least one availability date to remove.')
+      await Promise.all(availabilityIds.map((id: string) => sql`DELETE FROM availability WHERE id = ${id}`))
+      return response.status(200).json({ ids: availabilityIds })
     }
 
     return sendError(response, 400, 'That action was not recognized.')
