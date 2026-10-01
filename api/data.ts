@@ -1,8 +1,9 @@
 import { neon } from '@neondatabase/serverless'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
+import { randomUUID } from 'node:crypto'
 import { sendTeamNotification } from '../lib/email.js'
 
-type Category = 'appointment' | 'home' | 'dad'
+type Category = 'appointment' | 'company' | 'home' | 'family' | 'dad'
 
 type TeamEventInput = {
   id: string
@@ -10,10 +11,13 @@ type TeamEventInput = {
   date: string
   dayLabel: string
   time: string
+  endTime: string
   title: string
   details: string
   location?: string
   helpNeeded: string
+  forWho: string
+  repeatGroupId?: string
 }
 
 type AvailabilityInput = {
@@ -40,12 +44,15 @@ async function ensureSchema() {
       event_date TEXT NOT NULL,
       day_label TEXT NOT NULL,
       event_time TEXT NOT NULL,
+      end_time TEXT NOT NULL DEFAULT '',
       title TEXT NOT NULL,
       details TEXT NOT NULL,
       location TEXT,
       help_needed TEXT NOT NULL,
       helper TEXT,
       helper_phone TEXT,
+      repeat_group_id TEXT,
+      for_who TEXT NOT NULL DEFAULT 'Family',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
@@ -62,6 +69,24 @@ async function ensureSchema() {
   `
   await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS helper_phone TEXT`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS end_time TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS repeat_group_id TEXT`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS for_who TEXT NOT NULL DEFAULT 'Family'`
+  await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
+  await sql`UPDATE team_events SET for_who = 'Stu' WHERE category = 'dad' AND for_who = 'Family'`
+  await sql`
+    CREATE TABLE IF NOT EXISTS support_requests (
+      id TEXT PRIMARY KEY,
+      event_id TEXT NOT NULL REFERENCES team_events(id) ON DELETE CASCADE,
+      requester_name TEXT NOT NULL,
+      requester_phone TEXT NOT NULL,
+      approval_token TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      decided_at TIMESTAMPTZ
+    )
+  `
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS one_pending_request_per_event ON support_requests(event_id) WHERE status = 'pending'`
   await sql`
     CREATE TABLE IF NOT EXISTS notification_log (
       notification_key TEXT PRIMARY KEY,
@@ -78,20 +103,47 @@ function sendError(response: VercelResponse, status: number, message: string) {
   return response.status(status).json({ error: message })
 }
 
-function timeMatchesAvailability(slot: string, eventTime: string) {
+function isNoSupport(value: string) {
+  return value === 'No help needed' || value === 'No help needed, just sharing the schedule'
+}
+
+function parseEventInput(item: Partial<TeamEventInput> | undefined) {
+  return {
+    id: clean(item?.id, 80),
+    category: clean(item?.category, 20) as Category,
+    date: clean(item?.date, 30),
+    dayLabel: clean(item?.dayLabel, 100),
+    time: clean(item?.time, 20),
+    endTime: clean(item?.endTime, 20),
+    title: clean(item?.title, 160),
+    details: clean(item?.details, 1000),
+    location: clean(item?.location, 300),
+    helpNeeded: clean(item?.helpNeeded, 200),
+    forWho: clean(item?.forWho, 30),
+    repeatGroupId: clean(item?.repeatGroupId, 80),
+  }
+}
+
+function eventIsValid(event: ReturnType<typeof parseEventInput>) {
+  return Boolean(event.id && event.date && event.dayLabel && event.time && event.endTime && event.title && event.helpNeeded && ['Mary', 'Stu', 'Coco', 'Family'].includes(event.forWho) && ['appointment', 'company', 'home', 'family', 'dad'].includes(event.category) && event.endTime > event.time)
+}
+
+function timeMatchesAvailability(slot: string, eventTime: string, eventEndTime?: string) {
   if (slot === 'anytime') return true
   const match = eventTime.match(/^(\d{1,2}):(\d{2})$/)
   if (!match) return false
   const minutes = Number(match[1]) * 60 + Number(match[2])
+  const endMatch = (eventEndTime || eventTime).match(/^(\d{1,2}):(\d{2})$/)
+  const eventEnd = endMatch ? Number(endMatch[1]) * 60 + Number(endMatch[2]) : minutes
   const range = slot.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/)
   if (range) {
     const start = Number(range[1]) * 60 + Number(range[2])
     const end = Number(range[3]) * 60 + Number(range[4])
-    return minutes >= start && minutes <= end
+    return minutes >= start && eventEnd <= end
   }
-  if (slot === 'morning') return minutes >= 480 && minutes < 720
-  if (slot === 'afternoon') return minutes >= 720 && minutes < 1020
-  return slot === 'evening' && minutes >= 1020 && minutes <= 1200
+  if (slot === 'morning') return minutes >= 480 && eventEnd <= 720
+  if (slot === 'afternoon') return minutes >= 720 && eventEnd <= 1020
+  return slot === 'evening' && minutes >= 1020 && eventEnd <= 1200
 }
 
 function readableTime(value: string) {
@@ -139,26 +191,28 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     async function notifyOnce(key: string, details: Parameters<typeof sendTeamNotification>[0]) {
-      if (!await reserveNotification(key)) return
+      if (!await reserveNotification(key)) return false
       try {
         const sent = await sendTeamNotification(details)
         if (!sent) await releaseNotification(key)
+        return sent
       } catch (error) {
         await releaseNotification(key)
         console.error('Notification email failed', error)
+        return false
       }
     }
 
     async function findAvailabilityMatches(entries: AvailabilityInput[]) {
       const events = await sql`
-        SELECT id, event_date AS date, day_label AS "dayLabel", event_time AS time,
+        SELECT id, event_date AS date, day_label AS "dayLabel", event_time AS time, end_time AS "endTime",
           title, help_needed AS "helpNeeded"
         FROM team_events
         WHERE (helper IS NULL OR helper = '')
-          AND help_needed <> 'No help needed, just sharing the schedule'
+          AND help_needed NOT IN ('No help needed', 'No help needed, just sharing the schedule')
       `
       const matches = entries.flatMap((entry) => events
-        .filter((event) => String(event.date).slice(0, 8) === entry.day && timeMatchesAvailability(entry.time, String(event.time)))
+        .filter((event) => String(event.date).slice(0, 8) === entry.day && timeMatchesAvailability(entry.time, String(event.time), String(event.endTime || '')))
         .map((event) => ({ entry, event })))
       return matches
     }
@@ -242,11 +296,24 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     if (request.method === 'GET') {
       const events = await sql`
-        SELECT id, category, event_date AS date, day_label AS "dayLabel",
-          event_time AS time, title, details, location,
-          help_needed AS "helpNeeded", helper
+        SELECT team_events.id,
+          CASE WHEN category = 'dad' THEN 'family' ELSE category END AS category,
+          event_date AS date, day_label AS "dayLabel", event_time AS time,
+          end_time AS "endTime", title, details, location,
+          CASE WHEN help_needed = 'No help needed, just sharing the schedule' THEN 'No help needed' ELSE help_needed END AS "helpNeeded",
+          helper, repeat_group_id AS "repeatGroupId",
+          COALESCE(NULLIF(for_who, ''), CASE WHEN category = 'appointment' THEN 'Mary' WHEN category = 'dad' THEN 'Stu' ELSE 'Family' END) AS "forWho",
+          pending.requester_name AS "requesterName",
+          (pending.id IS NOT NULL) AS "requestPending"
         FROM team_events
-        ORDER BY event_date ASC, created_at ASC
+        LEFT JOIN LATERAL (
+          SELECT id, requester_name
+          FROM support_requests
+          WHERE event_id = team_events.id AND status = 'pending'
+          ORDER BY created_at ASC
+          LIMIT 1
+        ) pending ON TRUE
+        ORDER BY event_date ASC, team_events.created_at ASC
       `
       const availability = await sql`
         SELECT id, name, phone, available_day AS day, available_time AS time, note
@@ -289,30 +356,83 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }
     }
 
-    if (action === 'addEvent') {
-      const item = request.body?.event as Partial<TeamEventInput> | undefined
-      const event = {
-        id: clean(item?.id, 80),
-        category: clean(item?.category, 20) as Category,
-        date: clean(item?.date, 30),
-        dayLabel: clean(item?.dayLabel, 100),
-        time: clean(item?.time, 60),
-        title: clean(item?.title, 160),
-        details: clean(item?.details, 1000),
-        location: clean(item?.location, 300),
-        helpNeeded: clean(item?.helpNeeded, 200),
-      }
-      if (!event.id || !event.date || !event.dayLabel || !event.time || !event.title || !event.helpNeeded || !['appointment', 'home', 'dad'].includes(event.category)) {
-        return sendError(response, 400, 'Please complete the required appointment or task details.')
-      }
-      const [saved] = await sql`
-        INSERT INTO team_events (id, category, event_date, day_label, event_time, title, details, location, help_needed)
-        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded})
+    if (action === 'addEvent' || action === 'addEventBatch') {
+      const items: unknown[] = action === 'addEventBatch'
+        ? (Array.isArray(request.body?.events) ? request.body.events.slice(0, 52) : [])
+        : [request.body?.event]
+      const events = items.map((item) => parseEventInput(item as Partial<TeamEventInput> | undefined))
+      if (!events.length || events.some((event) => !eventIsValid(event))) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
+      const savedRows = await Promise.all(events.map((event) => sql`
+        INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, repeat_group_id, for_who)
+        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.repeatGroupId || null}, ${event.forWho})
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
-          event_time AS time, title, details, location,
-          help_needed AS "helpNeeded", helper
+          event_time AS time, end_time AS "endTime", title, details, location,
+          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho"
+      `))
+      return response.status(201).json({ events: savedRows.flat() })
+    }
+
+    if (action === 'updateEvent') {
+      const event = parseEventInput(request.body?.event as Partial<TeamEventInput> | undefined)
+      if (!eventIsValid(event)) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
+      const rows = await sql`
+        UPDATE team_events
+        SET category = ${event.category}, event_date = ${event.date}, day_label = ${event.dayLabel},
+          event_time = ${event.time}, end_time = ${event.endTime}, title = ${event.title},
+          details = ${event.details}, location = ${event.location || null}, help_needed = ${event.helpNeeded}, for_who = ${event.forWho},
+          helper = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper END,
+          helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper_phone END
+        WHERE id = ${event.id}
+        RETURNING id, category, event_date AS date, day_label AS "dayLabel",
+          event_time AS time, end_time AS "endTime", title, details, location,
+          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho"
       `
-      return response.status(201).json({ event: saved })
+      if (!rows.length) return sendError(response, 404, 'This schedule item could not be found.')
+      if (isNoSupport(event.helpNeeded)) await sql`UPDATE support_requests SET status = 'declined', decided_at = NOW() WHERE event_id = ${event.id} AND status = 'pending'`
+      return response.status(200).json({ event: rows[0] })
+    }
+
+    if (action === 'deleteEvent') {
+      const eventId = clean(request.body?.eventId, 80)
+      if (!eventId) return sendError(response, 400, 'Choose the schedule item to remove.')
+      const rows = await sql`DELETE FROM team_events WHERE id = ${eventId} RETURNING id`
+      if (!rows.length) return sendError(response, 404, 'This schedule item was already removed.')
+      return response.status(200).json({ id: eventId })
+    }
+
+    if (action === 'getApprovalRequest') {
+      const token = clean(request.body?.token, 120)
+      const rows = await sql`
+        SELECT support_requests.id, support_requests.status, support_requests.requester_name AS "requesterName",
+          support_requests.requester_phone AS "requesterPhone", team_events.title,
+          team_events.day_label AS "dayLabel", team_events.event_time AS time,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded"
+        FROM support_requests
+        JOIN team_events ON team_events.id = support_requests.event_id
+        WHERE support_requests.approval_token = ${token}
+      `
+      if (!rows.length) return sendError(response, 404, 'This request link is not available.')
+      return response.status(200).json({ request: rows[0] })
+    }
+
+    if (action === 'approveRequest') {
+      const token = clean(request.body?.token, 120)
+      const requests = await sql`
+        SELECT id, event_id AS "eventId", requester_name AS "requesterName", requester_phone AS "requesterPhone"
+        FROM support_requests
+        WHERE approval_token = ${token} AND status = 'pending'
+      `
+      if (!requests.length) return sendError(response, 409, 'This request was already handled or is no longer available.')
+      const supportRequest = requests[0]
+      const updated = await sql`
+        UPDATE team_events
+        SET helper = ${String(supportRequest.requesterName)}, helper_phone = ${String(supportRequest.requesterPhone)}
+        WHERE id = ${String(supportRequest.eventId)} AND (helper IS NULL OR helper = '')
+        RETURNING id, helper
+      `
+      if (!updated.length) return sendError(response, 409, 'This time already has someone confirmed.')
+      await sql`UPDATE support_requests SET status = 'approved', decided_at = NOW() WHERE id = ${String(supportRequest.id)}`
+      return response.status(200).json({ id: updated[0].id, helper: updated[0].helper })
     }
 
     if (action === 'claimEvent') {
@@ -320,28 +440,44 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const name = clean(request.body?.name, 120)
       const phone = clean(request.body?.phone, 40)
       if (!eventId || !name || !phone) return sendError(response, 400, 'Please enter your name and phone number.')
-      const rows = await sql`
-        UPDATE team_events
-        SET helper = ${name}, helper_phone = ${phone}
-        WHERE id = ${eventId} AND (helper IS NULL OR helper = '')
-        RETURNING id, helper, helper_phone AS "helperPhone", title,
-          day_label AS "dayLabel", event_time AS time, help_needed AS "helpNeeded"
+      const availableEvents = await sql`
+        SELECT id, title, day_label AS "dayLabel", event_time AS time, end_time AS "endTime", help_needed AS "helpNeeded", helper
+        FROM team_events WHERE id = ${eventId}
       `
-      if (!rows.length) return sendError(response, 409, 'Someone else has already filled this slot. The schedule has been refreshed.')
-      const claimed = rows[0]
-      await notifyOnce(`claim:${eventId}`, {
-        subject: `Mary's Team: ${name} signed up to help`,
-        heading: 'A task was filled',
-        intro: `${name} signed up to help with an item on Mary and Stu's schedule.`,
+      if (!availableEvents.length) return sendError(response, 404, 'This schedule item could not be found.')
+      const selectedEvent = availableEvents[0]
+      if (isNoSupport(String(selectedEvent.helpNeeded))) return sendError(response, 400, 'This time is marked busy and is not accepting support requests.')
+      if (selectedEvent.helper) return sendError(response, 409, 'Someone else has already filled this time.')
+
+      const requestId = randomUUID()
+      const approvalToken = randomUUID()
+      const rows = await sql`
+        INSERT INTO support_requests (id, event_id, requester_name, requester_phone, approval_token)
+        VALUES (${requestId}, ${eventId}, ${name}, ${phone}, ${approvalToken})
+        ON CONFLICT DO NOTHING
+        RETURNING id
+      `
+      if (!rows.length) return sendError(response, 409, 'Someone has already requested this time. Mary or Stu can approve that request first.')
+      const approvalUrl = `https://marys-team.vercel.app/?approve=${encodeURIComponent(approvalToken)}`
+      const emailSent = await notifyOnce(`request:${requestId}`, {
+        subject: `Mary's Team: approval requested by ${name}`,
+        heading: 'A support request needs approval',
+        intro: `${name} would like to join an open time. Nothing has been confirmed yet.`,
         rows: [
-          { label: 'Helper', value: name },
+          { label: 'Person', value: name },
           { label: 'Phone', value: phone },
-          { label: 'Item', value: String(claimed.title) },
-          { label: 'When', value: `${String(claimed.dayLabel)} at ${readableTime(String(claimed.time))}` },
-          { label: 'Help', value: String(claimed.helpNeeded) },
+          { label: 'Schedule item', value: String(selectedEvent.title) },
+          { label: 'When', value: `${String(selectedEvent.dayLabel)} from ${readableTime(String(selectedEvent.time))} to ${readableTime(String(selectedEvent.endTime))}` },
+          { label: 'Support requested', value: String(selectedEvent.helpNeeded) },
         ],
+        actionUrl: approvalUrl,
+        actionLabel: 'Review and approve request',
       })
-      return response.status(200).json({ id: eventId, helper: name })
+      if (!emailSent) {
+        await sql`DELETE FROM support_requests WHERE id = ${requestId}`
+        return sendError(response, 503, 'Approval email is not connected yet. Please call or text Mary or Stu for this time.')
+      }
+      return response.status(202).json({ id: eventId, status: 'requested', requesterName: name })
     }
 
     if (action === 'addAvailabilityBatch') {
