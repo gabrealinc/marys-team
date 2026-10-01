@@ -108,6 +108,13 @@ async function ensureSchema() {
       sent_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS organizer_login_attempts (
+      attempt_key TEXT PRIMARY KEY,
+      failures INTEGER NOT NULL DEFAULT 0,
+      last_attempt TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
 }
 
 function clean(value: unknown, maxLength = 500) {
@@ -116,6 +123,12 @@ function clean(value: unknown, maxLength = 500) {
 
 function organizerSession(expiration: string, secret: string) {
   return `${expiration}.${createHmac('sha256', secret).update(expiration).digest('hex')}`
+}
+
+function organizerAttemptKey(request: VercelRequest, secret: string) {
+  const forwarded = request.headers['x-forwarded-for']
+  const address = (Array.isArray(forwarded) ? forwarded[0] : forwarded || request.headers['x-real-ip'] || 'unknown').toString().split(',')[0].trim()
+  return createHmac('sha256', secret).update(address).digest('hex')
 }
 
 function organizerAuthorized(request: VercelRequest) {
@@ -389,9 +402,29 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const secret = process.env.ORGANIZER_SESSION_SECRET?.trim()
       const pin = clean(request.body?.pin, 20)
       if (!configuredPin || !secret) return sendError(response, 503, 'Organizer access is not connected yet.')
+      const attemptKey = organizerAttemptKey(request, secret)
+      const recentAttempts = await sql`
+        SELECT failures
+        FROM organizer_login_attempts
+        WHERE attempt_key = ${attemptKey} AND last_attempt > NOW() - INTERVAL '15 minutes'
+      `
+      if (Number(recentAttempts[0]?.failures || 0) >= 8) return sendError(response, 429, 'Too many PIN attempts. Please wait 15 minutes and try again.')
       const entered = Buffer.from(pin)
       const expected = Buffer.from(configuredPin)
-      if (entered.length !== expected.length || !timingSafeEqual(entered, expected)) return sendError(response, 401, 'That organizer PIN is not correct.')
+      if (entered.length !== expected.length || !timingSafeEqual(entered, expected)) {
+        await sql`
+          INSERT INTO organizer_login_attempts (attempt_key, failures, last_attempt)
+          VALUES (${attemptKey}, 1, NOW())
+          ON CONFLICT (attempt_key) DO UPDATE SET
+            failures = CASE
+              WHEN organizer_login_attempts.last_attempt <= NOW() - INTERVAL '15 minutes' THEN 1
+              ELSE organizer_login_attempts.failures + 1
+            END,
+            last_attempt = NOW()
+        `
+        return sendError(response, 401, 'That organizer PIN is not correct.')
+      }
+      await sql`DELETE FROM organizer_login_attempts WHERE attempt_key = ${attemptKey}`
       const expiration = String(Date.now() + 30 * 24 * 60 * 60 * 1000)
       response.setHeader('Set-Cookie', `marys_organizer=${organizerSession(expiration, secret)}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=2592000`)
       return response.status(200).json({ organizer: true })
