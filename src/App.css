@@ -30,6 +30,10 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .helper-note>svg { width:25px; color:var(--pine); }
 .helper-note p { margin:0; line-height:1.45; }
 .helper-note button { border:0; background:transparent; color:var(--pine); font-weight:800; padding:10px; text-decoration:underline; text-underline-offset:3px; }
+.cloud-message { max-width:1180px; margin:0 auto 1rem; padding:.9rem 1.1rem; border:1px solid #cddfd2; border-radius:14px; background:#f3f8f4; color:var(--pine); }
+.cloud-message p { margin:0; }
+.cloud-message.error { display:flex; align-items:center; justify-content:space-between; gap:1rem; background:#fff8ee; border-color:#ead6b7; color:#664a28; }
+.cloud-message button { flex:0 0 auto; border:0; border-radius:10px; padding:.7rem 1rem; background:var(--pine); color:#fff; font:inherit; font-weight:800; cursor:pointer; }
 .steps { background:var(--pine-dark); color:#fff; border-radius:22px; padding:26px 30px; box-shadow:0 12px 30px rgba(30,63,46,.12); }
 .steps h2 { color:#fff; margin:0 0 20px; font-size:1.55rem; }
 .steps ol { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
@@ -168,6 +172,7 @@ textarea { min-height:95px; resize:vertical; }
   .quick-actions .text-button { display:none; }
   .helper-note { grid-template-columns:auto 1fr; padding:13px 14px; }
   .helper-note button { grid-column:2; justify-self:start; padding:3px 0 1px; }
+  .cloud-message.error { align-items:flex-start; flex-direction:column; }
   .schedule { padding-top:36px; }
   .section-heading h2 { font-size:2rem; }
   .filters { display:none; }

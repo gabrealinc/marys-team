@@ -9,62 +9,103 @@ type Category = 'appointment' | 'home' | 'dad'
 type TeamEvent = { id: string; category: Category; date: string; dayLabel: string; time: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string }
 type Availability = { id: string; name: string; day: string; time: string; note: string }
 
-const starterEvents: TeamEvent[] = []
-
 const categoryDetails = {
   appointment: { label: 'Mary’s appointment', icon: CalendarDays },
   home: { label: 'Help at home', icon: Home },
   dad: { label: 'Stu’s schedule', icon: UserRound },
 }
 
-const starterAvailability: Availability[] = []
 
-function loadHelpers() {
-  try { return JSON.parse(localStorage.getItem('marys-team-v3-helpers') || '{}') as Record<string, string> } catch { return {} }
-}
-function loadAvailability() {
-  try { return JSON.parse(localStorage.getItem('marys-team-v3-availability') || 'null') as Availability[] | null } catch { return null }
-}
-function loadEvents() {
-  try { return JSON.parse(localStorage.getItem('marys-team-v3-events') || 'null') as TeamEvent[] | null } catch { return null }
+async function apiRequest(body?: unknown) {
+  const response = await fetch('/api/data', body ? {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  } : undefined)
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error || 'The shared schedule could not be reached.')
+  return data
 }
 
 function App() {
-  const [teamEvents, setTeamEvents] = useState<TeamEvent[]>(loadEvents() || starterEvents)
+  const [teamEvents, setTeamEvents] = useState<TeamEvent[]>([])
   const [filter, setFilter] = useState<'all' | Category>('all')
   const [view, setView] = useState<'details' | 'week'>('details')
-  const [helpers, setHelpers] = useState<Record<string, string>>(loadHelpers)
-  const [availability, setAvailability] = useState<Availability[]>(loadAvailability() || starterAvailability)
+  const [availability, setAvailability] = useState<Availability[]>([])
+  const [loading, setLoading] = useState(true)
+  const [cloudError, setCloudError] = useState('')
   const [signupEvent, setSignupEvent] = useState<TeamEvent | null>(null)
   const [showAvailability, setShowAvailability] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [message, setMessage] = useState('')
   const visibleEvents = teamEvents.filter((event) => filter === 'all' || event.category === filter)
+  const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
 
-  function saveHelper(eventId: string, name: string) {
-    const next = { ...helpers, [eventId]: name }
-    setHelpers(next)
-    localStorage.setItem('marys-team-v3-helpers', JSON.stringify(next))
-    setSignupEvent(null)
-    setMessage(`Thank you, ${name}. You are signed up to help.`)
-    window.setTimeout(() => setMessage(''), 5000)
+  async function refreshData(showLoading = false) {
+    if (showLoading) setLoading(true)
+    try {
+      const data = await apiRequest()
+      setTeamEvents(data.events)
+      setAvailability(data.availability)
+      setCloudError('')
+    } catch (error) {
+      setCloudError(error instanceof Error ? error.message : 'The shared schedule could not be reached.')
+    } finally {
+      if (showLoading) setLoading(false)
+    }
   }
-  function saveAvailability(entry: Omit<Availability, 'id'>) {
-    const next = [...availability, { ...entry, id: String(Date.now()) }]
-    setAvailability(next)
-    localStorage.setItem('marys-team-v3-availability', JSON.stringify(next))
-    setShowAvailability(false)
-    setMessage(`Thank you, ${entry.name}. Your available time was added.`)
-    window.setTimeout(() => setMessage(''), 5000)
+
+  useEffect(() => {
+    let active = true
+    void apiRequest().then((data) => {
+      if (!active) return
+      setTeamEvents(data.events)
+      setAvailability(data.availability)
+      setCloudError('')
+    }).catch((error) => {
+      if (active) setCloudError(error instanceof Error ? error.message : 'The shared schedule could not be reached.')
+    }).finally(() => {
+      if (active) setLoading(false)
+    })
+    const timer = window.setInterval(() => void refreshData(), 30000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [])
+
+  async function saveHelper(eventId: string, name: string) {
+    try {
+      await apiRequest({ action: 'claimEvent', eventId, name })
+      setTeamEvents((events) => events.map((event) => event.id === eventId ? { ...event, helper: name } : event))
+      setSignupEvent(null)
+      setMessage(`Thank you, ${name}. You are signed up to help.`)
+      window.setTimeout(() => setMessage(''), 5000)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not save your sign-up. Please try again.')
+      await refreshData()
+    }
   }
-  function saveEvent(event: TeamEvent) {
-    const next = [...teamEvents, event].sort((a, b) => a.date.localeCompare(b.date))
-    setTeamEvents(next)
-    localStorage.setItem('marys-team-v3-events', JSON.stringify(next))
-    setShowAdd(false)
-    setMessage('The new item was added to the schedule.')
-    window.setTimeout(() => setMessage(''), 5000)
+  async function saveAvailability(entry: Omit<Availability, 'id'>) {
+    try {
+      const saved = { ...entry, id: crypto.randomUUID() }
+      await apiRequest({ action: 'addAvailability', entry: saved })
+      setAvailability((items) => [saved, ...items])
+      setShowAvailability(false)
+      setMessage(`Thank you, ${entry.name}. Your available time was added.`)
+      window.setTimeout(() => setMessage(''), 5000)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not save your availability. Please try again.')
+    }
+  }
+  async function saveEvent(event: TeamEvent) {
+    try {
+      await apiRequest({ action: 'addEvent', event })
+      setTeamEvents((events) => [...events, event].sort((a, b) => a.date.localeCompare(b.date)))
+      setShowAdd(false)
+      setMessage('The new item was added to the shared schedule.')
+      window.setTimeout(() => setMessage(''), 5000)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not save this item. Please try again.')
+    }
   }
   function addToCalendar(event: TeamEvent) {
     const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Marys Team//Family Calendar//EN', 'BEGIN:VEVENT', `UID:${event.id}@marys-team`, `DTSTART:${event.date}`, `DTEND:${event.date}`, `SUMMARY:${event.title}`, `DESCRIPTION:${event.details} Help needed: ${event.helpNeeded}`, `LOCATION:${event.location || 'Mary and Dad’s home'}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
@@ -94,6 +135,8 @@ function App() {
           </div>
         </section>
         <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>Want to help?</strong> Choose a task and enter your name. No account is needed.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
+        {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
+        {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
           <div className="section-heading">
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
@@ -102,7 +145,7 @@ function App() {
           {view === 'details' && <div className="filters" aria-label="Show schedule items by type">
             {([['all', 'Everything'], ['appointment', 'Appointments'], ['home', 'Help at home'], ['dad', 'Stu’s schedule']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
           </div>}
-          {view === 'details' ? <div className="event-list">
+          {!loading && (view === 'details' ? <div className="event-list">
             {visibleEvents.length ? visibleEvents.map((event) => {
               const CategoryIcon = categoryDetails[event.category].icon
               const helper = helpers[event.id] || event.helper
@@ -115,11 +158,11 @@ function App() {
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => setShowAdd(true)} />}
-          </div> : <ThirtyDayCalendar events={teamEvents} helpers={helpers} onAdd={() => setShowAdd(true)} onOpen={(eventId) => { setView('details'); setFilter('all'); window.setTimeout(() => document.getElementById(`event-${eventId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50) }} />}
+          </div> : <ThirtyDayCalendar events={teamEvents} helpers={helpers} onAdd={() => setShowAdd(true)} onOpen={(eventId) => { setView('details'); setFilter('all'); window.setTimeout(() => document.getElementById(`event-${eventId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50) }} />)}
         </section>
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Who is available</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add my availability</button></div>
-          <div className="availability-list">{availability.length ? availability.map((entry) => <article key={entry.id}><div className="person-icon"><Users aria-hidden="true" /></div><div><h3>{entry.name}</h3><p><strong>{entry.day}</strong> · {entry.time}</p><small>{entry.note}</small></div></article>) : <div className="empty-availability"><Users aria-hidden="true" /><div><h3>No availability has been added yet</h3><p>Friends and family can share when they may be free to help.</p></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}>Add my availability</button></div>}</div>
+          {!loading && <div className="availability-list">{availability.length ? availability.map((entry) => <article key={entry.id}><div className="person-icon"><Users aria-hidden="true" /></div><div><h3>{entry.name}</h3><p><strong>{entry.day}</strong> · {entry.time}</p><small>{entry.note}</small></div></article>) : <div className="empty-availability"><Users aria-hidden="true" /><div><h3>No availability has been added yet</h3><p>Friends and family can share when they may be free to help.</p></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}>Add my availability</button></div>}</div>}
         </section>
       </main>
       <footer><HeartHandshake aria-hidden="true" /><p><strong>Thank you for being part of Mary’s Team.</strong><br />Questions? Call or text the family coordinator.</p></footer>
@@ -182,7 +225,7 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
     const parsed = new Date(`${form.date}T12:00:00`)
     const dayLabel = parsed.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
     const compactDate = form.date.replaceAll('-', '')
-    onSave({ id: `${Date.now()}`, category: form.category, date: `${compactDate}T120000`, dayLabel, time: form.time, title: form.title, details: form.details || 'See Mary or Stu for details.', location: form.location || undefined, helpNeeded: form.helpNeeded })
+    onSave({ id: crypto.randomUUID(), category: form.category, date: `${compactDate}T120000`, dayLabel, time: form.time, title: form.title, details: form.details || 'See Mary or Stu for details.', location: form.location || undefined, helpNeeded: form.helpNeeded })
   }
   return <ModalShell title="Add an appointment or task" onClose={onClose}><p className="modal-intro">Mary or Stu can add something here in about a minute.</p><form onSubmit={submit}><label htmlFor="event-title">What is happening?</label><input id="event-title" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Example: Mary’s eye appointment" autoFocus /><div className="field-row"><div><label htmlFor="event-date">Date</label><input id="event-date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div><div><label htmlFor="event-time">Time</label><input id="event-time" required value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} placeholder="Example: 10:30 AM" /></div></div><label htmlFor="event-kind">What kind of item is this?</label><select id="event-kind" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as Category })}><option value="appointment">Mary’s appointment</option><option value="home">Help at home</option><option value="dad">Stu’s schedule</option></select><label htmlFor="event-help">What help is needed?</label><select id="event-help" value={form.helpNeeded} onChange={(e) => setForm({ ...form, helpNeeded: e.target.value })}><option>Need a ride</option><option>Need help at home</option><option>Need a visit or check-in</option><option>Need someone to bring a meal</option><option>No help needed, just sharing the schedule</option></select><label htmlFor="event-location">Where? <span>(optional)</span></label><input id="event-location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Clinic name or address" /><label htmlFor="event-details">Anything else people should know? <span>(optional)</span></label><textarea id="event-details" value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} placeholder="Add a short note" /><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit"><Check aria-hidden="true" /> Add to the schedule</button></div></form></ModalShell>
 }
