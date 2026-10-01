@@ -136,6 +136,26 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ id: eventId, helper: name })
     }
 
+    if (action === 'addAvailabilityBatch') {
+      const items = Array.isArray(request.body?.entries) ? request.body.entries.slice(0, 31) as Partial<AvailabilityInput>[] : []
+      const entries = items.map((item) => ({
+        id: clean(item.id, 80),
+        name: clean(item.name, 120),
+        day: clean(item.day, 120),
+        time: clean(item.time, 120),
+        note: clean(item.note, 500),
+      }))
+      if (!entries.length || entries.some((entry) => !entry.id || !entry.name || !entry.day || !entry.time || !entry.note)) {
+        return sendError(response, 400, 'Please complete the dates, times, and kind of help.')
+      }
+      const savedRows = await Promise.all(entries.map((entry) => sql`
+        INSERT INTO availability (id, name, available_day, available_time, note)
+        VALUES (${entry.id}, ${entry.name}, ${entry.day}, ${entry.time}, ${entry.note})
+        RETURNING id, name, available_day AS day, available_time AS time, note
+      `))
+      return response.status(201).json({ entries: savedRows.flat() })
+    }
+
     if (action === 'addAvailability') {
       const item = request.body?.entry as Partial<AvailabilityInput> | undefined
       const entry = {
