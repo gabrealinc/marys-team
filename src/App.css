@@ -107,17 +107,18 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .calendar-items button small { margin-top:3px; color:var(--muted); }
 .calendar-items button em { margin-top:5px; color:var(--fern); font-size:.86rem; font-style:normal; font-weight:750; }
 .calendar-items button .availability-match { margin-top:8px; padding:8px 9px; border:1px solid #bad7c1; border-radius:8px; background:#eef7f0; color:var(--pine); }
-.day-availability { margin-top:2px; padding:12px 13px; border:1px solid #c9ddce; border-radius:11px; background:#eef6f0; }
-.day-availability>strong { display:flex; align-items:center; gap:7px; color:var(--pine-dark); font-size:.92rem; }
-.day-availability>strong svg { width:18px; height:18px; }
-.day-availability>div { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
-.day-availability span { padding:6px 9px; border-radius:8px; background:#fff; color:var(--ink); font-size:.86rem; line-height:1.35; }
 .calendar-dot { width:12px; height:12px; border-radius:50%; background:var(--pine); margin-top:4px; }
 .calendar-dot.home { background:#77966d; }
 .calendar-dot.dad { background:var(--gold); }
 .availability-section { padding:40px 0 70px; }
-.availability-list { display:grid; grid-template-columns:repeat(2,1fr); gap:14px; }
-.availability-list article { background:#fff; border:1px solid var(--line); border-radius:15px; padding:20px; display:flex; gap:15px; align-items:flex-start; }
+.availability-view-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; margin:20px 0 14px; }
+.availability-view-heading p { margin:0; color:var(--muted); font-weight:700; }
+.availability-list { display:grid; grid-template-columns:1fr; gap:11px; }
+.availability-list article { background:#fff; border:1px solid var(--line); border-radius:15px; padding:16px 20px; display:grid; grid-template-columns:180px 44px 1fr; gap:15px; align-items:center; }
+.availability-date { padding-right:18px; border-right:1px solid #dfe8e1; }
+.availability-date span,.availability-date strong { display:block; }
+.availability-date span { color:var(--fern); font-size:.82rem; font-weight:850; text-transform:uppercase; letter-spacing:.04em; }
+.availability-date strong { margin-top:3px; color:var(--pine-dark); font-family:Georgia,serif; font-size:1.1rem; }
 .person-icon { width:44px; height:44px; flex:0 0 44px; border-radius:50%; background:var(--mint); color:var(--pine); display:grid; place-items:center; }
 .person-icon svg { width:23px; }
 .availability-list h3 { margin:0 0 5px; color:var(--pine-dark); font-size:1.1rem; }
@@ -216,7 +217,12 @@ textarea { min-height:95px; resize:vertical; }
   .event-info,.event-date { padding:20px; }
   .event-actions { grid-column:auto; flex-direction:column; padding:20px; }
   .availability-section .secondary-button { width:100%; }
-  .availability-list { grid-template-columns:1fr; }
+  .availability-view-heading { align-items:flex-start; flex-direction:column; }
+  .availability-view-heading .view-toggle { width:100%; }
+  .availability-list article { grid-template-columns:92px 40px 1fr; gap:10px; padding:15px 13px; }
+  .availability-date { padding-right:9px; }
+  .availability-date strong { font-size:.92rem; }
+  .person-icon { width:40px; height:40px; flex-basis:40px; }
   .empty-availability { grid-template-columns:auto 1fr; padding:18px; }
   .empty-availability .secondary-button { grid-column:1/-1; width:100%; }
   .calendar-day { grid-template-columns:76px 1fr; min-height:92px; }

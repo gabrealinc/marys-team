@@ -19,7 +19,7 @@ const availabilityTimes = [
   { value: 'morning', label: 'Morning (8 AM – noon)' },
   { value: 'afternoon', label: 'Afternoon (noon – 5 PM)' },
   { value: 'evening', label: 'Evening (5 PM – 8 PM)' },
-  { value: 'anytime', label: 'Any time that day' },
+  { value: 'anytime', label: 'All day' },
 ]
 
 const helpChoices = ['Driving or giving a ride', 'Help around the house', 'Bringing a meal', 'Visiting or checking in', 'Anything that is needed']
@@ -85,6 +85,7 @@ function App() {
   const [teamEvents, setTeamEvents] = useState<TeamEvent[]>([])
   const [filter, setFilter] = useState<'all' | Category>('all')
   const [view, setView] = useState<'details' | 'week'>('details')
+  const [availabilityView, setAvailabilityView] = useState<'upcoming' | 'month'>('upcoming')
   const [availability, setAvailability] = useState<Availability[]>([])
   const [loading, setLoading] = useState(true)
   const [cloudError, setCloudError] = useState('')
@@ -95,6 +96,9 @@ function App() {
   const [message, setMessage] = useState('')
   const visibleEvents = teamEvents.filter((event) => filter === 'all' || event.category === filter)
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
+  const availabilityDays = getThirtyDays()
+  const visibleAvailabilityDates = new Set((availabilityView === 'upcoming' ? availabilityDays.slice(0, 7) : availabilityDays).map((day) => day.dateKey))
+  const visibleAvailability = availability.filter((entry) => visibleAvailabilityDates.has(entry.day)).sort((a, b) => a.day.localeCompare(b.day) || a.time.localeCompare(b.time) || a.name.localeCompare(b.name))
 
   async function refreshData(showLoading = false) {
     if (showLoading) setLoading(true)
@@ -217,7 +221,8 @@ function App() {
         </section>
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Who is available</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add my availability</button></div>
-          {!loading && <div className="availability-list">{availability.length ? availability.map((entry) => <article key={entry.id}><div className="person-icon"><Users aria-hidden="true" /></div><div><h3>{entry.name}</h3><p><strong>{availabilityDayLabel(entry.day)}</strong> · {availabilityTimeLabel(entry.time)}</p><small>{entry.note}</small></div></article>) : <div className="empty-availability"><Users aria-hidden="true" /><div><h3>No availability has been added yet</h3><p>Friends and family can share when they may be free to help.</p></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}>Add my availability</button></div>}</div>}
+          <div className="availability-view-heading"><div className="view-toggle" aria-label="Choose availability view"><button aria-pressed={availabilityView === 'upcoming'} className={availabilityView === 'upcoming' ? 'active' : ''} type="button" onClick={() => setAvailabilityView('upcoming')}><ListChecks aria-hidden="true" /> Upcoming</button><button aria-pressed={availabilityView === 'month'} className={availabilityView === 'month' ? 'active' : ''} type="button" onClick={() => setAvailabilityView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div><p>{availabilityView === 'upcoming' ? 'The next 7 days' : 'The next 30 days'}</p></div>
+          {!loading && <div className="availability-list">{visibleAvailability.length ? visibleAvailability.map((entry) => <article key={entry.id}><div className="availability-date"><span>{availabilityDayLabel(entry.day).split(',')[0]}</span><strong>{availabilityDayLabel(entry.day).split(',').slice(1).join(',').trim()}</strong></div><div className="person-icon"><Users aria-hidden="true" /></div><div><h3>{entry.name}</h3><p><strong>{availabilityTimeLabel(entry.time)}</strong></p><small>{entry.note}</small></div></article>) : <div className="empty-availability"><Users aria-hidden="true" /><div><h3>No availability in {availabilityView === 'upcoming' ? 'the next 7 days' : 'the next 30 days'}</h3><p>Friends and family can share when they may be free to help.</p></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}>Add my availability</button></div>}</div>}
         </section>
       </main>
       <footer><HeartHandshake aria-hidden="true" /><p><strong>Thank you for being part of Mary’s Team.</strong><br />Questions? Call or text the family coordinator.</p></footer>
@@ -256,14 +261,14 @@ function ThirtyDayCalendar({ events, helpers, availability, onAdd, onOpen }: { e
     ...day,
     events: events.filter((event) => event.date.startsWith(day.dateKey)),
     availablePeople: availability.filter((entry) => entry.day === day.dateKey),
-  })).filter((day) => day.events.length || day.availablePeople.length)
+  })).filter((day) => day.events.length)
   const lastDay = days.at(-1)?.fullDay
-  if (!activeDays.length) return <div className="month-empty"><CalendarDays aria-hidden="true" /><p className="eyebrow">Today through {lastDay}</p><h3>No plans or availability in the next 30 days</h3><p>New appointments, tasks, and available helpers will appear here by date.</p><button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button></div>
+  if (!activeDays.length) return <div className="month-empty"><CalendarDays aria-hidden="true" /><p className="eyebrow">Today through {lastDay}</p><h3>No plans in the next 30 days</h3><p>New appointments and tasks will appear here by date.</p><button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button></div>
   return <div className="week-calendar" aria-label={`Calendar for today through ${lastDay}`}>{activeDays.map(({ shortDay, number, fullDay, dateKey, events: dayEvents, availablePeople }) => <section className="calendar-day has-events" key={dateKey} aria-label={fullDay}><div className="calendar-date"><span>{shortDay}</span><strong>{number}</strong></div><div className="calendar-items">{dayEvents.map((event) => {
     const helper = helpers[event.id] || event.helper
     const matches = availablePeople.filter((entry) => availabilityMatchesTime(entry.time, event.time))
     return <button type="button" key={event.id} onClick={() => onOpen(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeLabel(event.time)}</small>{helper ? <em>Filled by {helper}</em> : <em>{event.helpNeeded}</em>}{!helper && matches.length > 0 && <em className="availability-match">Suggested: {matches.map((entry) => entry.name).join(', ')} {matches.length === 1 ? 'is' : 'are'} available at this time</em>}</span></button>
-  })}{availablePeople.length > 0 && <div className="day-availability"><strong><Users aria-hidden="true" /> Available to help</strong><div>{availablePeople.map((entry) => <span key={entry.id}><b>{entry.name}</b> · {availabilityTimeLabel(entry.time)} · {entry.note}</span>)}</div></div>}</div></section>)}</div>
+  })}</div></section>)}</div>
 }
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -363,7 +368,7 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
   return <ModalShell title="Add an appointment or task" onClose={onClose}><p className="modal-intro">Mary or Stu can add something here in about a minute.</p><form onSubmit={submit}><label htmlFor="event-title">What is happening?</label><input id="event-title" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Example: Mary’s eye appointment" autoFocus /><div className="field-row"><div><label htmlFor="event-date">Date</label><input id="event-date" type="date" required value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></div><div><label htmlFor="event-time">Time</label><input id="event-time" type="time" required value={form.time} onChange={(e) => setForm({ ...form, time: e.target.value })} /></div></div><label htmlFor="event-kind">What kind of item is this?</label><select id="event-kind" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as Category })}><option value="appointment">Mary’s appointment</option><option value="home">Help at home</option><option value="dad">Stu’s schedule</option></select><label htmlFor="event-help">What help is needed?</label><select id="event-help" value={form.helpNeeded} onChange={(e) => setForm({ ...form, helpNeeded: e.target.value })}><option>Need a ride</option><option>Need help at home</option><option>Need a visit or check-in</option><option>Need someone to bring a meal</option><option>No help needed, just sharing the schedule</option></select><label htmlFor="event-location">Where? <span>(optional)</span></label><input id="event-location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="Clinic name or address" /><label htmlFor="event-details">Anything else people should know? <span>(optional)</span></label><textarea id="event-details" value={form.details} onChange={(e) => setForm({ ...form, details: e.target.value })} placeholder="Add a short note" /><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit"><Check aria-hidden="true" /> Add to the schedule</button></div></form></ModalShell>
 }
 function HelpModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Mary or Stu can add something.</strong> Choose “Add an appointment or task,” fill in the short form, and save it.</p></div><div><span>2</span><p><strong>Look at Upcoming or This Month.</strong> Each item shows the date, time, and kind of help that is needed.</p></div><div><span>3</span><p><strong>Choose “I can help.”</strong> Type only your name and choose the green sign-up button. The card will say the slot is filled by you.</p></div><div><span>4</span><p><strong>Add your availability.</strong> Share a day and time when you may be free, even if you have not chosen a task yet.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
+  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Mary or Stu can add something.</strong> Choose “Add an appointment or task,” fill in the short form, and save it.</p></div><div><span>2</span><p><strong>Look at Upcoming or This Month.</strong> Each item shows the date, time, help needed, and any suggested helpers who are available then.</p></div><div><span>3</span><p><strong>Choose “I can help.”</strong> Type only your name and choose the green sign-up button. The card will say the slot is filled by you.</p></div><div><span>4</span><p><strong>Add your availability.</strong> Pick dates, a date range, or a repeating weekday. Choose all day or specific hours.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
 }
 
 export default App
