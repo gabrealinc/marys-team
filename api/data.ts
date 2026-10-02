@@ -29,6 +29,12 @@ type AvailabilityInput = {
   note: string
 }
 
+type StuWorkDefaults = {
+  weekdays: number[]
+  startTime: string
+  endTime: string
+}
+
 type SupportRequestNotification = {
   id: unknown
   approvalToken: unknown
@@ -65,6 +71,8 @@ async function ensureSchema() {
       helper_phone TEXT,
       repeat_group_id TEXT,
       for_who TEXT NOT NULL DEFAULT 'Family',
+      schedule_source TEXT,
+      is_schedule_exception BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
@@ -86,6 +94,8 @@ async function ensureSchema() {
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS end_time TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS repeat_group_id TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS for_who TEXT NOT NULL DEFAULT 'Family'`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS schedule_source TEXT`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS is_schedule_exception BOOLEAN NOT NULL DEFAULT FALSE`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
   await sql`UPDATE team_events SET for_who = 'Stu' WHERE category = 'dad' AND for_who = 'Family'`
   await sql`
@@ -114,6 +124,21 @@ async function ensureSchema() {
       attempt_key TEXT PRIMARY KEY,
       failures INTEGER NOT NULL DEFAULT 0,
       last_attempt TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS stu_work_defaults (
+      singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+      weekdays TEXT NOT NULL DEFAULT '1,2,3,4,5',
+      start_time TEXT NOT NULL DEFAULT '09:00',
+      end_time TEXT NOT NULL DEFAULT '17:00',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS stu_work_exceptions (
+      work_date TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
 }
@@ -233,6 +258,28 @@ function readableDay(value: string) {
   if (!/^\d{8}$/.test(value)) return value
   const date = new Date(`${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}T12:00:00`)
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+function phoenixToday() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Phoenix', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+function upcomingWorkDates(count = 90) {
+  const start = new Date(`${phoenixToday()}T12:00:00Z`)
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(start)
+    date.setUTCDate(start.getUTCDate() + index)
+    const year = date.getUTCFullYear()
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0')
+    const day = String(date.getUTCDate()).padStart(2, '0')
+    return {
+      dateKey: `${year}${month}${day}`,
+      weekday: date.getUTCDay(),
+      dayLabel: date.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric' }),
+    }
+  })
 }
 
 export default async function handler(request: VercelRequest, response: VercelResponse) {
@@ -390,6 +437,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           end_time AS "endTime", title, details, location,
           CASE WHEN help_needed = 'No help needed, just sharing the schedule' THEN 'No help needed' ELSE help_needed END AS "helpNeeded",
           helper, repeat_group_id AS "repeatGroupId",
+          schedule_source AS "scheduleSource", is_schedule_exception AS "isScheduleException",
           COALESCE(NULLIF(for_who, ''), CASE WHEN category = 'appointment' THEN 'Mary' WHEN category = 'dad' THEN 'Stu' ELSE 'Family' END) AS "forWho",
           pending.requester_name AS "requesterName",
           (pending.id IS NOT NULL) AS "requestPending"
@@ -413,7 +461,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ...entry,
         editable: isOrganizer || !ownerKeyHash || ownerKeyHash === helperOwner,
       }))
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer })
+      const defaultRows = isOrganizer ? await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime" FROM stu_work_defaults WHERE singleton = TRUE` : []
+      const stuWorkDefaults = defaultRows.length ? {
+        weekdays: String(defaultRows[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+        startTime: String(defaultRows[0].startTime),
+        endTime: String(defaultRows[0].endTime),
+      } : null
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults })
     }
 
     if (request.method !== 'POST') {
@@ -519,6 +573,46 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }
     }
 
+    if (action === 'saveStuWorkHours') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change Stu’s work hours.')
+      const rawWeekdays = Array.isArray(request.body?.weekdays) ? request.body.weekdays : []
+      const weekdays = [...new Set(rawWeekdays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort()
+      const startTime = clean(request.body?.startTime, 20)
+      const endTime = clean(request.body?.endTime, 20)
+      if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= startTime) {
+        return sendError(response, 400, 'Choose a normal starting time and a later ending time.')
+      }
+      const defaults: StuWorkDefaults = { weekdays, startTime, endTime }
+      await sql`
+        INSERT INTO stu_work_defaults (singleton, weekdays, start_time, end_time, updated_at)
+        VALUES (TRUE, ${weekdays.join(',')}, ${startTime}, ${endTime}, NOW())
+        ON CONFLICT (singleton) DO UPDATE SET weekdays = EXCLUDED.weekdays, start_time = EXCLUDED.start_time,
+          end_time = EXCLUDED.end_time, updated_at = NOW()
+      `
+      const exceptionRows = await sql`SELECT work_date AS "workDate" FROM stu_work_exceptions`
+      const exceptions = new Set(exceptionRows.map((row) => String(row.workDate)))
+      const selectedDays = new Set(weekdays)
+      await Promise.all(upcomingWorkDates().map(async ({ dateKey, weekday, dayLabel }) => {
+        if (exceptions.has(dateKey)) return
+        const id = `stu-work-${dateKey}`
+        if (!selectedDays.has(weekday)) {
+          await sql`DELETE FROM team_events WHERE id = ${id} AND is_schedule_exception = FALSE`
+          return
+        }
+        const eventDate = `${dateKey}T${startTime.replace(':', '')}00`
+        await sql`
+          INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, help_needed, for_who, schedule_source, is_schedule_exception)
+          VALUES (${id}, 'family', ${eventDate}, ${dayLabel}, ${startTime}, ${endTime}, 'Stu’s Work Hours', 'Stu is working.', 'Spend time with Mary', 'Stu', 'stu_work', FALSE)
+          ON CONFLICT (id) DO UPDATE SET event_date = EXCLUDED.event_date, day_label = EXCLUDED.day_label,
+            event_time = EXCLUDED.event_time, end_time = EXCLUDED.end_time, title = EXCLUDED.title,
+            details = EXCLUDED.details, help_needed = EXCLUDED.help_needed, for_who = EXCLUDED.for_who,
+            schedule_source = EXCLUDED.schedule_source
+          WHERE team_events.is_schedule_exception = FALSE
+        `
+      }))
+      return response.status(200).json({ defaults })
+    }
+
     if (action === 'addEvent' || action === 'addEventBatch') {
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const items: unknown[] = action === 'addEventBatch'
@@ -545,19 +639,29 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const event = parseEventInput(request.body?.event as Partial<TeamEventInput> | undefined)
       if (!eventIsValid(event)) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
+      const previousRows = await sql`SELECT event_date AS date, schedule_source AS "scheduleSource" FROM team_events WHERE id = ${event.id}`
+      const previous = previousRows[0]
       const rows = await sql`
         UPDATE team_events
         SET category = ${event.category}, event_date = ${event.date}, day_label = ${event.dayLabel},
           event_time = ${event.time}, end_time = ${event.endTime}, title = ${event.title},
           details = ${event.details}, location = ${event.location || null}, help_needed = ${event.helpNeeded}, for_who = ${event.forWho},
           helper = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper END,
-          helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper_phone END
+          helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper_phone END,
+          is_schedule_exception = CASE WHEN schedule_source = 'stu_work' THEN TRUE ELSE is_schedule_exception END
         WHERE id = ${event.id}
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
           event_time AS time, end_time AS "endTime", title, details, location,
-          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho"
+          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho",
+          schedule_source AS "scheduleSource", is_schedule_exception AS "isScheduleException"
       `
       if (!rows.length) return sendError(response, 404, 'This schedule item could not be found.')
+      if (previous?.scheduleSource === 'stu_work') {
+        const originalDate = String(previous.date).slice(0, 8)
+        const updatedDate = event.date.slice(0, 8)
+        await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${originalDate}) ON CONFLICT DO NOTHING`
+        if (updatedDate !== originalDate) await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${updatedDate}) ON CONFLICT DO NOTHING`
+      }
       if (isNoSupport(event.helpNeeded)) await sql`UPDATE support_requests SET status = 'declined', decided_at = NOW() WHERE event_id = ${event.id} AND status = 'pending'`
       return response.status(200).json({ event: rows[0] })
     }
@@ -566,6 +670,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const eventId = clean(request.body?.eventId, 80)
       if (!eventId) return sendError(response, 400, 'Choose the schedule item to remove.')
+      const previousRows = await sql`SELECT event_date AS date, schedule_source AS "scheduleSource" FROM team_events WHERE id = ${eventId}`
+      if (previousRows[0]?.scheduleSource === 'stu_work') {
+        await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${String(previousRows[0].date).slice(0, 8)}) ON CONFLICT DO NOTHING`
+      }
       const rows = await sql`DELETE FROM team_events WHERE id = ${eventId} RETURNING id`
       if (!rows.length) return sendError(response, 404, 'This schedule item was already removed.')
       return response.status(200).json({ id: eventId })
