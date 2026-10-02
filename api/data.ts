@@ -96,6 +96,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS for_who TEXT NOT NULL DEFAULT 'Family'`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS schedule_source TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS is_schedule_exception BOOLEAN NOT NULL DEFAULT FALSE`
+  await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
   await sql`UPDATE team_events SET for_who = 'Stu' WHERE category = 'dad' AND for_who = 'Family'`
   await sql`
@@ -602,7 +603,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         const eventDate = `${dateKey}T${startTime.replace(':', '')}00`
         await sql`
           INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, help_needed, for_who, schedule_source, is_schedule_exception)
-          VALUES (${id}, 'family', ${eventDate}, ${dayLabel}, ${startTime}, ${endTime}, 'Stu’s Work Hours', 'Stu is working.', 'Spend time with Mary', 'Stu', 'stu_work', FALSE)
+          VALUES (${id}, 'family', ${eventDate}, ${dayLabel}, ${startTime}, ${endTime}, 'Stu at Work', 'Stu is working.', 'Spend time with Mary', 'Stu', 'stu_work', FALSE)
           ON CONFLICT (id) DO UPDATE SET event_date = EXCLUDED.event_date, day_label = EXCLUDED.day_label,
             event_time = EXCLUDED.event_time, end_time = EXCLUDED.end_time, title = EXCLUDED.title,
             details = EXCLUDED.details, help_needed = EXCLUDED.help_needed, for_who = EXCLUDED.for_who,
