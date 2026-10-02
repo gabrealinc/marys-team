@@ -52,6 +52,14 @@ function matchesSupportFilter(event: TeamEvent, filter: SupportFilter) {
   return support.includes('coco') || support.includes('pet')
 }
 
+function helpNeededPriority(event: TeamEvent) {
+  const support = event.helpNeeded.toLocaleLowerCase()
+  if (support.includes('ride') || support.includes('driv')) return 0
+  if (!support.includes('mary') && !support.includes('visit') && !support.includes('check-in')) return 1
+  if (event.scheduleSource !== 'stu_work') return 2
+  return 3
+}
+
 function availabilityTimeLabel(value: string) {
   const range = value.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/)
   if (range) return `${eventTimeLabel(range[1])} – ${eventTimeLabel(range[2])}`
@@ -154,7 +162,9 @@ function App() {
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
   const [stuWorkDefaults, setStuWorkDefaults] = useState<StuWorkDefaults | null>(null)
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
-  const visibleEvents = teamEvents.filter((event) => scheduleDates.has(event.date.slice(0, 8)) && (view === 'month' || (!isNoSupport(event.helpNeeded) && !event.helper && matchesSupportFilter(event, filter))))
+  const visibleEvents = teamEvents
+    .filter((event) => scheduleDates.has(event.date.slice(0, 8)) && (view === 'month' || (!isNoSupport(event.helpNeeded) && !event.helper && matchesSupportFilter(event, filter))))
+    .sort((a, b) => view === 'upcoming' ? helpNeededPriority(a) - helpNeededPriority(b) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
   const allAvailabilityDates = new Set(availabilityDays.map((day) => day.dateKey))
@@ -412,7 +422,7 @@ function App() {
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
             <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'week'} className={view === 'week' ? 'active' : ''} type="button" onClick={() => setView('week')}><CalendarDays aria-hidden="true" /> This Week</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
-          <p className="schedule-view-note">{view === 'upcoming' ? 'Open times where someone is needed.' : view === 'month' ? 'Every schedule item for the next 30 days.' : 'A simple calendar for the next 7 days.'}</p>
+          <p className="schedule-view-note">{view === 'upcoming' ? 'Rides and specific needs are shown first, followed by time with Mary.' : view === 'month' ? 'Every schedule item for the next 30 days.' : 'A simple calendar for the next 7 days.'}</p>
           {view === 'upcoming' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
             {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
           </div>}
