@@ -81,6 +81,7 @@ async function ensureSchema() {
   `
   await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS owner_key_hash TEXT`
+  await sql`UPDATE availability SET owner_key_hash = 'legacy-organizer-only' WHERE owner_key_hash IS NULL`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS helper_phone TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS end_time TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS repeat_group_id TEXT`
