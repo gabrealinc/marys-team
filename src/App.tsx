@@ -30,6 +30,7 @@ const availabilityTimes = [
 
 const helpChoices = ['Driving or giving a ride', 'Company or a friendly check-in', 'Home projects or errands', 'Bringing a meal', 'Pet care or errands', 'Anything that would be useful']
 const supportChoices = ['Need a ride', 'Spend time with Mary', 'Support at home or with an errand', 'Help with Coco', 'No help needed']
+const defaultEventDetails = 'Text Mary directly if you have any questions.'
 const whoChoices: ForWho[] = ['Mary', 'Stu', 'Coco', 'Family']
 const weekdayChoices = [
   { value: 0, label: 'Sunday', short: 'Sun' }, { value: 1, label: 'Monday', short: 'Mon' },
@@ -738,7 +739,7 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
       cursor.setDate(cursor.getDate() + 7)
     }
     const repeatGroupId = repeats ? crypto.randomUUID() : undefined
-    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.time), dayLabel: dayLabelForDate(date), time: form.time, endTime: form.endTime, title: form.title, details: form.details || 'See Mary or Stu for details.', location: form.location || undefined, helpNeeded: form.helpNeeded, repeatGroupId }))
+    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.time), dayLabel: dayLabelForDate(date), time: form.time, endTime: form.endTime, title: form.title, details: form.details.trim() || defaultEventDetails, location: form.location || undefined, helpNeeded: form.helpNeeded, repeatGroupId }))
     setSaving(true)
     const saved = await onSave(events)
     if (!saved) setSaving(false)
@@ -753,7 +754,7 @@ function AddEventModal({ onClose, onSave }: { onClose: () => void; onSave: (even
     {repeats && <><label htmlFor="repeat-through">Repeat through</label><input id="repeat-through" type="date" min={form.date} value={repeatThrough < form.date ? form.date : repeatThrough} onChange={(event) => setRepeatThrough(event.target.value)} /></>}
     <label htmlFor="event-help">What support is needed?</label><select id="event-help" value={form.helpNeeded} onChange={(event) => setForm({ ...form, helpNeeded: event.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
     <label htmlFor="event-location">Where? <span>(optional)</span></label><input id="event-location" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Clinic name, home, or address" />
-    <label htmlFor="event-details">Anything else people should know? <span>(optional)</span></label><textarea id="event-details" value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder="Add a short note" />
+    <label htmlFor="event-details">Anything else people should know? <span>(optional)</span></label><textarea id="event-details" value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder={defaultEventDetails} />
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid || saving} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : repeats ? 'Add weekly schedule' : 'Add to the schedule'}</button></div>
   </form></ModalShell>
 }
@@ -767,7 +768,7 @@ function EditEventModal({ event, onClose, onSave, onRemove }: { event: TeamEvent
   function submit(submitEvent: React.FormEvent) {
     submitEvent.preventDefault()
     if (!timeIsValid) return
-    onSave({ ...event, ...form, category: form.forWho === 'Mary' ? 'appointment' : 'family', date: compactEventDate(form.date, form.time), dayLabel: dayLabelForDate(form.date), location: form.location || undefined })
+    onSave({ ...event, ...form, category: form.forWho === 'Mary' ? 'appointment' : 'family', date: compactEventDate(form.date, form.time), dayLabel: dayLabelForDate(form.date), details: form.details.trim() || defaultEventDetails, location: form.location || undefined })
   }
 
   return <ModalShell title="View or edit schedule" onClose={onClose}><p className="modal-intro">Click any box below to make a change.{event.repeatGroupId || event.scheduleSource === 'stu_work' ? ' This changes this date only.' : ''}</p><form onSubmit={submit}>

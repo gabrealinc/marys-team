@@ -97,6 +97,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS schedule_source TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS is_schedule_exception BOOLEAN NOT NULL DEFAULT FALSE`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
+  await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
   await sql`UPDATE team_events SET for_who = 'Stu' WHERE category = 'dad' AND for_who = 'Family'`
   await sql`
@@ -198,6 +199,8 @@ function isNoSupport(value: string) {
   return value === 'No help needed' || value === 'No help needed, just sharing the schedule'
 }
 
+const defaultEventDetails = 'Text Mary directly if you have any questions.'
+
 function parseEventInput(item: Partial<TeamEventInput> | undefined) {
   const forWho = clean(item?.forWho, 30)
   return {
@@ -208,7 +211,7 @@ function parseEventInput(item: Partial<TeamEventInput> | undefined) {
     time: clean(item?.time, 20),
     endTime: clean(item?.endTime, 20),
     title: clean(item?.title, 160),
-    details: clean(item?.details, 1000),
+    details: clean(item?.details, 1000) || defaultEventDetails,
     location: clean(item?.location, 300),
     helpNeeded: clean(item?.helpNeeded, 200),
     forWho,
