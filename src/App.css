@@ -284,7 +284,7 @@ textarea { min-height:95px; resize:vertical; }
   .primary-nav button { min-width:0; min-height:47px; padding:5px 3px; flex-direction:column; gap:2px; border-color:#dbe5dd; background:#fbfdfb; font-size:.72rem; line-height:1.08; }
   .primary-nav svg { width:18px; height:18px; }
   .primary-nav strong { position:absolute; margin:-25px 0 0 27px; min-width:19px; height:19px; font-size:.68rem; }
-  .help-button { width:46px; height:46px; padding:0; font-size:0; }
+  .help-button { grid-column:2; grid-row:1; justify-self:end; width:46px; height:46px; padding:0; font-size:0; }
   .help-button span { display:none; }
   .help-button svg { width:26px; }
   main { width:min(100% - 28px,1180px); }
