@@ -18,6 +18,7 @@ type TeamEventInput = {
   helpNeeded: string
   forWho: string
   repeatGroupId?: string
+  isFlexible?: boolean
 }
 
 type AvailabilityInput = {
@@ -40,11 +41,13 @@ type SupportRequestNotification = {
   approvalToken: unknown
   requesterName: unknown
   requesterPhone: unknown
+  requesterEmail: unknown
   title: unknown
   dayLabel: unknown
   time: unknown
   endTime: unknown
   helpNeeded: unknown
+  isFlexible?: unknown
 }
 
 function database() {
@@ -69,10 +72,12 @@ async function ensureSchema() {
       help_needed TEXT NOT NULL,
       helper TEXT,
       helper_phone TEXT,
+      helper_email TEXT,
       repeat_group_id TEXT,
       for_who TEXT NOT NULL DEFAULT 'Family',
       schedule_source TEXT,
       is_schedule_exception BOOLEAN NOT NULL DEFAULT FALSE,
+      is_flexible BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
@@ -91,11 +96,13 @@ async function ensureSchema() {
   await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS owner_key_hash TEXT`
   await sql`UPDATE availability SET owner_key_hash = 'legacy-organizer-only' WHERE owner_key_hash IS NULL`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS helper_phone TEXT`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS helper_email TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS end_time TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS repeat_group_id TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS for_who TEXT NOT NULL DEFAULT 'Family'`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS schedule_source TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS is_schedule_exception BOOLEAN NOT NULL DEFAULT FALSE`
+  await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS is_flexible BOOLEAN NOT NULL DEFAULT FALSE`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
   await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
@@ -106,6 +113,7 @@ async function ensureSchema() {
       event_id TEXT NOT NULL REFERENCES team_events(id) ON DELETE CASCADE,
       requester_name TEXT NOT NULL,
       requester_phone TEXT NOT NULL,
+      requester_email TEXT NOT NULL DEFAULT '',
       approval_token TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL DEFAULT 'pending',
       notification_sent_at TIMESTAMPTZ,
@@ -114,6 +122,8 @@ async function ensureSchema() {
     )
   `
   await sql`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS notification_sent_at TIMESTAMPTZ`
+  await sql`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS requester_email TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS decline_reason TEXT`
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS one_pending_request_per_event ON support_requests(event_id) WHERE status = 'pending'`
   await sql`
     CREATE TABLE IF NOT EXISTS notification_log (
@@ -216,11 +226,13 @@ function parseEventInput(item: Partial<TeamEventInput> | undefined) {
     helpNeeded: clean(item?.helpNeeded, 200),
     forWho,
     repeatGroupId: clean(item?.repeatGroupId, 80),
+    isFlexible: Boolean(item?.isFlexible),
   }
 }
 
 function eventIsValid(event: ReturnType<typeof parseEventInput>) {
-  return Boolean(event.id && event.date && event.dayLabel && event.time && event.endTime && event.title && event.helpNeeded && ['Mary', 'Stu', 'Coco', 'Family'].includes(event.forWho) && ['appointment', 'company', 'home', 'family', 'dad'].includes(event.category) && event.endTime > event.time)
+  const validTime = event.isFlexible ? event.time === 'anytime' && event.endTime === 'anytime' : event.endTime > event.time
+  return Boolean(event.id && event.date && event.dayLabel && event.time && event.endTime && event.title && event.helpNeeded && ['Mary', 'Stu', 'Coco', 'Family'].includes(event.forWho) && ['appointment', 'company', 'home', 'family', 'dad'].includes(event.category) && validTime)
 }
 
 function timeMatchesAvailability(slot: string, eventTime: string, eventEndTime?: string) {
@@ -308,10 +320,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
       await sql`DELETE FROM notification_log WHERE notification_key = ${key}`
     }
 
-    async function notifyOnce(key: string, details: Parameters<typeof sendTeamNotification>[0]) {
+    async function notifyOnce(key: string, details: Parameters<typeof sendTeamNotification>[0], recipients?: string[]) {
       if (!await reserveNotification(key)) return false
       try {
-        const sent = await sendTeamNotification(details)
+        const sent = await sendTeamNotification(details, recipients)
         if (!sent) await releaseNotification(key)
         return sent
       } catch (error) {
@@ -330,8 +342,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
         rows: [
           { label: 'Person', value: String(supportRequest.requesterName) },
           { label: 'Phone', value: String(supportRequest.requesterPhone) },
+          { label: 'Email', value: String(supportRequest.requesterEmail) },
           { label: 'Schedule item', value: String(supportRequest.title) },
-          { label: 'When', value: `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.time))} to ${readableTime(String(supportRequest.endTime))}` },
+          { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.time))} to ${readableTime(String(supportRequest.endTime))}` },
           { label: 'Support requested', value: String(supportRequest.helpNeeded) },
         ],
         actionUrl: approvalUrl,
@@ -341,16 +354,39 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return emailSent
     }
 
+    async function notifySupportDecision(supportRequest: Record<string, unknown>, decision: 'approve' | 'decline', declineReason = '') {
+      const email = String(supportRequest.requesterEmail || '')
+      if (!email) return false
+      const approved = decision === 'approve'
+      return notifyOnce(`decision:${String(supportRequest.id)}:${decision}`, {
+        subject: `Mary's Team: your request was ${approved ? 'approved' : 'not confirmed'}`,
+        heading: approved ? 'You are confirmed' : 'Your request was not confirmed',
+        intro: approved
+          ? 'Thank you for being part of Mary’s Team. Mary or Stu approved your request.'
+          : 'Mary or Stu could not confirm this request. The schedule time is open again.',
+        rows: [
+          { label: 'Schedule item', value: String(supportRequest.title) },
+          { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.time))} to ${readableTime(String(supportRequest.endTime))}` },
+          { label: 'Support requested', value: String(supportRequest.helpNeeded) },
+          ...(!approved && declineReason ? [{ label: 'Reason', value: declineReason }] : []),
+          { label: 'Mary', value: 'mary@hcttravel.com' },
+          { label: 'Stu', value: 'ancalaeyes@aol.com' },
+        ],
+        actionUrl: 'https://marys-team.vercel.app',
+        actionLabel: "Open Mary's Team",
+      }, [email])
+    }
+
     async function findAvailabilityMatches(entries: AvailabilityInput[]) {
       const events = await sql`
         SELECT id, event_date AS date, day_label AS "dayLabel", event_time AS time, end_time AS "endTime",
-          title, help_needed AS "helpNeeded"
+          title, help_needed AS "helpNeeded", is_flexible AS "isFlexible"
         FROM team_events
         WHERE (helper IS NULL OR helper = '')
           AND help_needed NOT IN ('No help needed', 'No help needed, just sharing the schedule')
       `
       const matches = entries.flatMap((entry) => events
-        .filter((event) => String(event.date).slice(0, 8) === entry.day && timeMatchesAvailability(entry.time, String(event.time), String(event.endTime || '')))
+        .filter((event) => Boolean(event.isFlexible) || (String(event.date).slice(0, 8) === entry.day && timeMatchesAvailability(entry.time, String(event.time), String(event.endTime || ''))))
         .map((event) => ({ entry, event })))
       return matches
     }
@@ -384,7 +420,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
             { label: 'Can help with', value: person.note },
             ...matches.flatMap(({ event }) => [
               { label: 'Possible match', value: String(event.title) },
-              { label: 'When', value: `${String(event.dayLabel)} at ${readableTime(String(event.time))}` },
+              { label: 'When', value: Boolean(event.isFlexible) ? 'Anytime' : `${String(event.dayLabel)} at ${readableTime(String(event.time))}` },
               { label: 'Help needed', value: String(event.helpNeeded) },
             ]),
           ],
@@ -420,7 +456,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
             { label: 'Phone', value: person.phone },
             ...freshMatches.flatMap(({ event }) => [
               { label: 'Open item', value: String(event.title) },
-              { label: 'When', value: `${String(event.dayLabel)} at ${readableTime(String(event.time))}` },
+              { label: 'When', value: Boolean(event.isFlexible) ? 'Anytime' : `${String(event.dayLabel)} at ${readableTime(String(event.time))}` },
               { label: 'Help needed', value: String(event.helpNeeded) },
             ]),
           ],
@@ -440,8 +476,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
           event_date AS date, day_label AS "dayLabel", event_time AS time,
           end_time AS "endTime", title, details, location,
           CASE WHEN help_needed = 'No help needed, just sharing the schedule' THEN 'No help needed' ELSE help_needed END AS "helpNeeded",
-          helper, repeat_group_id AS "repeatGroupId",
+          helper, helper_phone AS "helperPhone", helper_email AS "helperEmail", repeat_group_id AS "repeatGroupId",
           schedule_source AS "scheduleSource", is_schedule_exception AS "isScheduleException",
+          is_flexible AS "isFlexible",
           COALESCE(NULLIF(for_who, ''), CASE WHEN category = 'appointment' THEN 'Mary' WHEN category = 'dad' THEN 'Stu' ELSE 'Family' END) AS "forWho",
           pending.requester_name AS "requesterName",
           (pending.id IS NOT NULL) AS "requestPending"
@@ -524,9 +561,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const requests = await sql`
         SELECT support_requests.id, support_requests.event_id AS "eventId",
           support_requests.requester_name AS "requesterName", support_requests.requester_phone AS "requesterPhone",
+          support_requests.requester_email AS "requesterEmail",
           support_requests.notification_sent_at AS "notificationSentAt", team_events.title,
           team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded"
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.is_flexible AS "isFlexible"
         FROM support_requests
         JOIN team_events ON team_events.id = support_requests.event_id
         WHERE support_requests.status = 'pending'
@@ -539,16 +577,26 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!isOrganizer) return sendError(response, 401, 'Organizer access is required.')
       const requestId = clean(request.body?.requestId, 80)
       const decision = clean(request.body?.decision, 20)
+      const declineReason = clean(request.body?.declineReason, 500)
       if (!requestId || !['approve', 'decline'].includes(decision)) return sendError(response, 400, 'Choose a request and a decision.')
-      const requests = await sql`SELECT id, event_id AS "eventId", requester_name AS "requesterName", requester_phone AS "requesterPhone" FROM support_requests WHERE id = ${requestId} AND status = 'pending'`
+      if (decision === 'decline' && !declineReason) return sendError(response, 400, 'Please add a short reason so the person knows what changed.')
+      const requests = await sql`
+        SELECT support_requests.id, support_requests.event_id AS "eventId", support_requests.requester_name AS "requesterName",
+          support_requests.requester_phone AS "requesterPhone", support_requests.requester_email AS "requesterEmail",
+          team_events.title, team_events.day_label AS "dayLabel", team_events.event_time AS time,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.is_flexible AS "isFlexible"
+        FROM support_requests JOIN team_events ON team_events.id = support_requests.event_id
+        WHERE support_requests.id = ${requestId} AND support_requests.status = 'pending'
+      `
       if (!requests.length) return sendError(response, 409, 'This request was already handled.')
       const supportRequest = requests[0]
       if (decision === 'approve') {
-        const updated = await sql`UPDATE team_events SET helper = ${String(supportRequest.requesterName)}, helper_phone = ${String(supportRequest.requesterPhone)} WHERE id = ${String(supportRequest.eventId)} AND (helper IS NULL OR helper = '') RETURNING id`
+        const updated = await sql`UPDATE team_events SET helper = ${String(supportRequest.requesterName)}, helper_phone = ${String(supportRequest.requesterPhone)}, helper_email = ${String(supportRequest.requesterEmail)} WHERE id = ${String(supportRequest.eventId)} AND (helper IS NULL OR helper = '') RETURNING id`
         if (!updated.length) return sendError(response, 409, 'This time already has someone confirmed.')
       }
-      await sql`UPDATE support_requests SET status = ${decision === 'approve' ? 'approved' : 'declined'}, decided_at = NOW() WHERE id = ${requestId}`
-      return response.status(200).json({ id: requestId, decision })
+      await sql`UPDATE support_requests SET status = ${decision === 'approve' ? 'approved' : 'declined'}, decline_reason = ${decision === 'decline' ? declineReason : null}, decided_at = NOW() WHERE id = ${requestId}`
+      const emailSent = await notifySupportDecision(supportRequest, decision as 'approve' | 'decline', declineReason)
+      return response.status(200).json({ id: requestId, decision, emailSent })
     }
 
     if (action === 'sendNotificationTest') {
@@ -625,16 +673,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const events = items.map((item) => parseEventInput(item as Partial<TeamEventInput> | undefined))
       if (!events.length || events.some((event) => !eventIsValid(event))) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
       const savedRows = await Promise.all(events.map((event) => sql`
-        INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, repeat_group_id, for_who)
-        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.repeatGroupId || null}, ${event.forWho})
+        INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, repeat_group_id, for_who, is_flexible)
+        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.repeatGroupId || null}, ${event.forWho}, ${event.isFlexible})
         ON CONFLICT (id) DO UPDATE SET
           category = EXCLUDED.category, event_date = EXCLUDED.event_date, day_label = EXCLUDED.day_label,
           event_time = EXCLUDED.event_time, end_time = EXCLUDED.end_time, title = EXCLUDED.title,
           details = EXCLUDED.details, location = EXCLUDED.location, help_needed = EXCLUDED.help_needed,
-          repeat_group_id = EXCLUDED.repeat_group_id, for_who = EXCLUDED.for_who
+          repeat_group_id = EXCLUDED.repeat_group_id, for_who = EXCLUDED.for_who, is_flexible = EXCLUDED.is_flexible
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
           event_time AS time, end_time AS "endTime", title, details, location,
-          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho"
+          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho", is_flexible AS "isFlexible"
       `))
       return response.status(201).json({ events: savedRows.flat() })
     }
@@ -649,7 +697,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         UPDATE team_events
         SET category = ${event.category}, event_date = ${event.date}, day_label = ${event.dayLabel},
           event_time = ${event.time}, end_time = ${event.endTime}, title = ${event.title},
-          details = ${event.details}, location = ${event.location || null}, help_needed = ${event.helpNeeded}, for_who = ${event.forWho},
+          details = ${event.details}, location = ${event.location || null}, help_needed = ${event.helpNeeded}, for_who = ${event.forWho}, is_flexible = ${event.isFlexible},
           helper = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper END,
           helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper_phone END,
           is_schedule_exception = CASE WHEN schedule_source = 'stu_work' THEN TRUE ELSE is_schedule_exception END
@@ -657,7 +705,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
           event_time AS time, end_time AS "endTime", title, details, location,
           help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho",
-          schedule_source AS "scheduleSource", is_schedule_exception AS "isScheduleException"
+          schedule_source AS "scheduleSource", is_schedule_exception AS "isScheduleException", is_flexible AS "isFlexible"
       `
       if (!rows.length) return sendError(response, 404, 'This schedule item could not be found.')
       if (previous?.scheduleSource === 'stu_work') {
@@ -687,9 +735,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const token = clean(request.body?.token, 120)
       const rows = await sql`
         SELECT support_requests.id, support_requests.status, support_requests.requester_name AS "requesterName",
-          support_requests.requester_phone AS "requesterPhone", team_events.title,
+          support_requests.requester_phone AS "requesterPhone", support_requests.requester_email AS "requesterEmail", team_events.title,
           team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded"
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.is_flexible AS "isFlexible"
         FROM support_requests
         JOIN team_events ON team_events.id = support_requests.event_id
         WHERE support_requests.approval_token = ${token}
@@ -698,32 +746,43 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ request: rows[0] })
     }
 
-    if (action === 'approveRequest') {
+    if (action === 'approveRequest' || action === 'decideApprovalRequest') {
       const token = clean(request.body?.token, 120)
+      const decision = action === 'approveRequest' ? 'approve' : clean(request.body?.decision, 20)
+      const declineReason = clean(request.body?.declineReason, 500)
+      if (!['approve', 'decline'].includes(decision)) return sendError(response, 400, 'Choose approve or decline.')
+      if (decision === 'decline' && !declineReason) return sendError(response, 400, 'Please add a short reason so the person knows what changed.')
       const requests = await sql`
-        SELECT id, event_id AS "eventId", requester_name AS "requesterName", requester_phone AS "requesterPhone"
-        FROM support_requests
-        WHERE approval_token = ${token} AND status = 'pending'
+        SELECT support_requests.id, support_requests.event_id AS "eventId", support_requests.requester_name AS "requesterName",
+          support_requests.requester_phone AS "requesterPhone", support_requests.requester_email AS "requesterEmail",
+          team_events.title, team_events.day_label AS "dayLabel", team_events.event_time AS time,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.is_flexible AS "isFlexible"
+        FROM support_requests JOIN team_events ON team_events.id = support_requests.event_id
+        WHERE support_requests.approval_token = ${token} AND support_requests.status = 'pending'
       `
       if (!requests.length) return sendError(response, 409, 'This request was already handled or is no longer available.')
       const supportRequest = requests[0]
-      const updated = await sql`
-        UPDATE team_events
-        SET helper = ${String(supportRequest.requesterName)}, helper_phone = ${String(supportRequest.requesterPhone)}
-        WHERE id = ${String(supportRequest.eventId)} AND (helper IS NULL OR helper = '')
-        RETURNING id, helper
-      `
-      if (!updated.length) return sendError(response, 409, 'This time already has someone confirmed.')
-      await sql`UPDATE support_requests SET status = 'approved', decided_at = NOW() WHERE id = ${String(supportRequest.id)}`
-      return response.status(200).json({ id: updated[0].id, helper: updated[0].helper })
+      if (decision === 'approve') {
+        const updated = await sql`
+          UPDATE team_events
+          SET helper = ${String(supportRequest.requesterName)}, helper_phone = ${String(supportRequest.requesterPhone)}, helper_email = ${String(supportRequest.requesterEmail)}
+          WHERE id = ${String(supportRequest.eventId)} AND (helper IS NULL OR helper = '')
+          RETURNING id, helper
+        `
+        if (!updated.length) return sendError(response, 409, 'This time already has someone confirmed.')
+      }
+      await sql`UPDATE support_requests SET status = ${decision === 'approve' ? 'approved' : 'declined'}, decline_reason = ${decision === 'decline' ? declineReason : null}, decided_at = NOW() WHERE id = ${String(supportRequest.id)}`
+      const emailSent = await notifySupportDecision(supportRequest, decision as 'approve' | 'decline', declineReason)
+      return response.status(200).json({ id: supportRequest.eventId, helper: decision === 'approve' ? supportRequest.requesterName : null, decision, emailSent })
     }
 
     if (action === 'retryPendingNotifications') {
       const pendingRequests = await sql`
         SELECT support_requests.id, support_requests.approval_token AS "approvalToken",
           support_requests.requester_name AS "requesterName", support_requests.requester_phone AS "requesterPhone",
+          support_requests.requester_email AS "requesterEmail",
           team_events.title, team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded"
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.is_flexible AS "isFlexible"
         FROM support_requests
         JOIN team_events ON team_events.id = support_requests.event_id
         WHERE support_requests.status = 'pending' AND support_requests.notification_sent_at IS NULL
@@ -738,9 +797,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const eventId = clean(request.body?.eventId, 80)
       const name = clean(request.body?.name, 120)
       const phone = clean(request.body?.phone, 40)
-      if (!eventId || !name || !phone) return sendError(response, 400, 'Please enter your name and phone number.')
+      const email = clean(request.body?.email, 200).toLocaleLowerCase()
+      if (!eventId || !name || !phone || !/^\S+@\S+\.\S+$/.test(email)) return sendError(response, 400, 'Please enter your name, phone number, and email address.')
       const availableEvents = await sql`
-        SELECT id, title, day_label AS "dayLabel", event_time AS time, end_time AS "endTime", help_needed AS "helpNeeded", helper
+        SELECT id, title, day_label AS "dayLabel", event_time AS time, end_time AS "endTime", help_needed AS "helpNeeded", helper, is_flexible AS "isFlexible"
         FROM team_events WHERE id = ${eventId}
       `
       if (!availableEvents.length) return sendError(response, 404, 'This schedule item could not be found.')
@@ -751,13 +811,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const requestId = randomUUID()
       const approvalToken = randomUUID()
       const rows = await sql`
-        INSERT INTO support_requests (id, event_id, requester_name, requester_phone, approval_token)
-        VALUES (${requestId}, ${eventId}, ${name}, ${phone}, ${approvalToken})
+        INSERT INTO support_requests (id, event_id, requester_name, requester_phone, requester_email, approval_token)
+        VALUES (${requestId}, ${eventId}, ${name}, ${phone}, ${email}, ${approvalToken})
         ON CONFLICT DO NOTHING
         RETURNING id
       `
       if (!rows.length) return sendError(response, 409, 'Someone has already requested this time. Mary or Stu can approve that request first.')
-      const emailSent = await notifySupportRequest({ id: requestId, approvalToken, requesterName: name, requesterPhone: phone, title: selectedEvent.title, dayLabel: selectedEvent.dayLabel, time: selectedEvent.time, endTime: selectedEvent.endTime, helpNeeded: selectedEvent.helpNeeded })
+      const emailSent = await notifySupportRequest({ id: requestId, approvalToken, requesterName: name, requesterPhone: phone, requesterEmail: email, title: selectedEvent.title, dayLabel: selectedEvent.dayLabel, time: selectedEvent.time, endTime: selectedEvent.endTime, helpNeeded: selectedEvent.helpNeeded, isFlexible: selectedEvent.isFlexible })
       return response.status(202).json({ id: eventId, status: 'requested', requesterName: name, emailSent })
     }
 

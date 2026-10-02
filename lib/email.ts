@@ -18,9 +18,10 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;')
 }
 
-function recipientList() {
+function recipientList(override?: string[]) {
   const testAddress = process.env.NOTIFICATION_TEST_EMAIL?.trim()
   if (process.env.NOTIFICATION_MODE !== 'live') return testAddress ? [testAddress] : []
+  if (override?.length) return override.map((email) => email.trim()).filter(Boolean)
   return (process.env.NOTIFICATION_EMAILS || '').split(',').map((email) => email.trim()).filter(Boolean)
 }
 
@@ -63,10 +64,10 @@ async function sendWithHighLevel(details: NotificationDetails, recipients: strin
   return true
 }
 
-export async function sendTeamNotification(details: NotificationDetails) {
+export async function sendTeamNotification(details: NotificationDetails, recipientOverride?: string[]) {
   const highLevelToken = process.env.GHL_PRIVATE_TOKEN?.trim()
   const highLevelLocationId = process.env.GHL_LOCATION_ID?.trim()
-  const recipients = recipientList()
+  const recipients = recipientList(recipientOverride)
   if (highLevelToken && highLevelLocationId && recipients.length) return sendWithHighLevel(details, recipients, highLevelToken, highLevelLocationId)
 
   const user = process.env.SMTP_USER?.trim()
