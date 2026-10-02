@@ -9,7 +9,7 @@ type Category = 'appointment' | 'company' | 'home' | 'family'
 type ForWho = 'Mary' | 'Stu' | 'Coco' | 'Family'
 type SupportFilter = 'all' | 'ride' | 'mary' | 'home' | 'coco'
 type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string }
-type Availability = { id: string; name: string; phone: string; day: string; time: string; note: string }
+type Availability = { id: string; name: string; phone: string; day: string; time: string; note: string; editable?: boolean }
 type ApprovalRequest = { status: string; requesterName: string; requesterPhone: string; title: string; dayLabel: string; time: string; endTime: string; helpNeeded: string }
 type PendingRequest = { id: string; eventId: string; requesterName: string; requesterPhone: string; notificationSentAt?: string; title: string; dayLabel: string; time: string; endTime: string; helpNeeded: string }
 
@@ -244,10 +244,11 @@ function App() {
   async function saveAvailability(entries: Omit<Availability, 'id'>[]) {
     try {
       const saved = entries.map((entry) => ({ ...entry, id: crypto.randomUUID() }))
-      await apiRequest({ action: 'addAvailabilityBatch', entries: saved })
-      setAvailability((items) => [...saved, ...items])
+      const result = await apiRequest({ action: 'addAvailabilityBatch', entries: saved })
+      const addedEntries = Array.isArray(result.entries) ? result.entries : saved.map((entry) => ({ ...entry, editable: true }))
+      setAvailability((items) => [...addedEntries, ...items])
       setShowAvailability(false)
-      setMessage(`Thank you, ${entries[0].name}. Your availability was added for ${entries.length} ${entries.length === 1 ? 'date' : 'dates'}.`)
+      setMessage(`Thank you, ${entries[0].name}. Your availability was added. You can edit it later from this device.`)
       window.setTimeout(() => setMessage(''), 5000)
       return true
     } catch (error) {
@@ -336,6 +337,13 @@ function App() {
     setFilter('all')
     window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
+  function openEditAndApprove() {
+    if (!organizer) {
+      setShowOrganizerLogin(true)
+      return
+    }
+    document.getElementById('organizer-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
   function addToCalendar(event: TeamEvent) {
     const dateKey = event.date.slice(0, 8)
     const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Marys Team//Family Calendar//EN', 'BEGIN:VEVENT', `UID:${event.id}@marys-team`, `DTSTART:${dateKey}T${event.time.replace(':', '')}00`, `DTEND:${dateKey}T${(event.endTime || addHour(event.time)).replace(':', '')}00`, `SUMMARY:${event.title}`, `DESCRIPTION:${event.details} Support: ${event.helpNeeded}`, `LOCATION:${event.location || 'Mary and Stu’s home'}`, 'END:VEVENT', 'END:VCALENDAR'].join('\r\n')
@@ -353,7 +361,12 @@ function App() {
     <div className="app-shell">
       <header className="site-header">
         <a className="brand" href="#top" aria-label="Mary’s Team home"><span className="brand-mark"><HeartHandshake aria-hidden="true" /></span><span>Mary’s Team</span></a>
-        <div className="header-actions">{organizer ? <button className="header-add" type="button" onClick={() => setShowAdd(true)}>+ Add something</button> : <button className="organizer-link" type="button" onClick={() => setShowOrganizerLogin(true)}>Mary & Stu</button>}<button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> How to use this page</button></div>
+        <nav className="primary-nav" aria-label="Main navigation">
+          <button type="button" onClick={showSupportNeeded}><ListChecks aria-hidden="true" /><span>Help Needed</span></button>
+          <button type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /><span>Add Availability</span></button>
+          <button type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /><span>Edit &amp; Approve</span>{organizer && pendingRequests.length > 0 && <strong aria-label={`${pendingRequests.length} requests waiting`}>{pendingRequests.length}</strong>}</button>
+        </nav>
+        <button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> <span>How to use this page</span></button>
       </header>
       <main id="top">
         <section className="welcome" aria-labelledby="page-title">
@@ -361,10 +374,10 @@ function App() {
           <div className="quick-actions" role="group" aria-label="Page actions">
             <button className="support-button" type="button" onClick={showSupportNeeded}><ListChecks aria-hidden="true" /> See where support is needed</button>
             <button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Tell us when you’re free</button>
-            {organizer ? <button className="primary-button" type="button" onClick={() => setShowAdd(true)}>+ Add an appointment or task</button> : <button className="primary-button" type="button" onClick={() => setShowOrganizerLogin(true)}>Mary & Stu organizer</button>}
+            {organizer ? <button className="primary-button" type="button" onClick={() => setShowAdd(true)}>+ Add an appointment or task</button> : <button className="primary-button" type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /> Edit &amp; Approve</button>}
           </div>
         </section>
-        <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>Want to be there?</strong> Choose an open time and enter your name. No account is needed.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
+        <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Start with <button type="button" onClick={showSupportNeeded}>Help Needed</button> to choose a time, or <button type="button" onClick={() => setShowAvailability(true)}>Add Availability</button> to share when you’re free.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
         {organizer && <OrganizerPanel requests={pendingRequests} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
@@ -397,7 +410,7 @@ function App() {
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Who is available</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add my availability</button></div>
           <div className="availability-view-heading"><div className="view-toggle" role="group" aria-label="Choose availability view"><button aria-pressed={availabilityView === 'upcoming'} className={availabilityView === 'upcoming' ? 'active' : ''} type="button" onClick={() => setAvailabilityView('upcoming')}><ListChecks aria-hidden="true" /> Upcoming</button><button aria-pressed={availabilityView === 'month'} className={availabilityView === 'month' ? 'active' : ''} type="button" onClick={() => setAvailabilityView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div><p>{availabilityView === 'upcoming' ? 'The next 7 days' : 'The next 30 days'}</p></div>
-          {!loading && <div className="availability-list">{visibleAvailability.length ? visibleAvailability.map((entry) => <article key={entry.id} onClick={() => setEditingAvailability(entry)}><div className="availability-date"><span>{availabilityDayLabel(entry.day).split(',')[0]}</span><strong>{availabilityDayLabel(entry.day).split(',').slice(1).join(',').trim()}</strong></div><div className="person-icon"><Users aria-hidden="true" /></div><div className="availability-person"><h3>{entry.name}</h3><p className={`availability-time ${entry.time === 'anytime' ? 'all-day' : ''}`}>{availabilityTimeLabel(entry.time)}</p><p className="availability-help">{entry.note}</p>{entry.phone && <a className="availability-phone" href={`tel:${entry.phone}`} onClick={(clickEvent) => clickEvent.stopPropagation()}><span>Call or text</span> {entry.phone}</a>}</div><button className="tap-edit" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setEditingAvailability(entry) }} aria-label={`Edit ${entry.name}’s availability for ${availabilityDayLabel(entry.day)}`}><Pencil aria-hidden="true" /> Edit</button></article>) : <div className="empty-availability"><Users aria-hidden="true" /><div><h3>No availability in {availabilityView === 'upcoming' ? 'the next 7 days' : 'the next 30 days'}</h3><p>Friends and family can share when they may be free to support or spend time together.</p></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}>Add my availability</button></div>}</div>}
+          {!loading && <div className="availability-list">{visibleAvailability.length ? visibleAvailability.map((entry) => <article className={entry.editable ? 'editable' : ''} key={entry.id} onClick={() => entry.editable && setEditingAvailability(entry)}><div className="availability-date"><span>{availabilityDayLabel(entry.day).split(',')[0]}</span><strong>{availabilityDayLabel(entry.day).split(',').slice(1).join(',').trim()}</strong></div><div className="person-icon"><Users aria-hidden="true" /></div><div className="availability-person"><h3>{entry.name}</h3><p className={`availability-time ${entry.time === 'anytime' ? 'all-day' : ''}`}>{availabilityTimeLabel(entry.time)}</p><p className="availability-help">{entry.note}</p>{entry.phone && <a className="availability-phone" href={`tel:${entry.phone}`} onClick={(clickEvent) => clickEvent.stopPropagation()}><span>Call or text</span> {entry.phone}</a>}</div>{entry.editable && <button className="tap-edit" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setEditingAvailability(entry) }} aria-label={`Edit ${entry.name}’s availability for ${availabilityDayLabel(entry.day)}`}><Pencil aria-hidden="true" /> Edit</button>}</article>) : <div className="empty-availability"><Users aria-hidden="true" /><div><h3>No availability in {availabilityView === 'upcoming' ? 'the next 7 days' : 'the next 30 days'}</h3><p>Friends and family can share when they may be free to support or spend time together.</p></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}>Add my availability</button></div>}</div>}
         </section>
       </main>
       <footer><HeartHandshake aria-hidden="true" /><p><strong>Thank you for being part of Mary’s Team.</strong><br />Questions? Call or text the family coordinator.</p></footer>
@@ -473,7 +486,7 @@ function EventDetailsModal({ event, organizer, onClose, onEdit }: { event: TeamE
   </ModalShell>
 }
 function OrganizerPanel({ requests, onDecide, onLogout }: { requests: PendingRequest[]; onDecide: (id: string, decision: 'approve' | 'decline') => void; onLogout: () => void }) {
-  return <section className="organizer-panel" aria-labelledby="organizer-title"><div className="organizer-heading"><div><p className="eyebrow">Private organizer area</p><h2 id="organizer-title">Mary & Stu</h2></div><button className="text-button" type="button" onClick={onLogout}>Close organizer access</button></div>{requests.length ? <><p className="organizer-intro">Review each request below. These names and phone numbers are only visible after entering the organizer PIN.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a><p>{request.title}</p><small>{request.dayLabel}, {eventTimeLabel(request.time)} – {eventTimeLabel(request.endTime)} · {request.helpNeeded}</small></div><div><button className="text-button" type="button" onClick={() => onDecide(request.id, 'decline')}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div>}</section>
+  return <section className="organizer-panel" id="organizer-panel" aria-labelledby="organizer-title"><div className="organizer-heading"><div><p className="eyebrow">Private family area</p><h2 id="organizer-title">Edit &amp; Approve</h2></div><button className="text-button" type="button" onClick={onLogout}>Close private access</button></div>{requests.length ? <><p className="organizer-intro">Review each request below. These names and phone numbers are only visible after entering the family PIN.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a><p>{request.title}</p><small>{request.dayLabel}, {eventTimeLabel(request.time)} – {eventTimeLabel(request.endTime)} · {request.helpNeeded}</small></div><div><button className="text-button" type="button" onClick={() => onDecide(request.id, 'decline')}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div>}</section>
 }
 
 function OrganizerLoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: (pin: string) => Promise<void> }) {
@@ -486,7 +499,7 @@ function OrganizerLoginModal({ onClose, onLogin }: { onClose: () => void; onLogi
     setError('')
     try { await onLogin(pin) } catch (loginError) { setError(loginError instanceof Error ? loginError.message : 'Organizer access could not be opened.'); setSaving(false) }
   }
-  return <ModalShell title="Mary & Stu organizer" onClose={onClose}><p className="modal-intro">Enter the family organizer PIN to review requests or change the schedule.</p><form onSubmit={submit}><label htmlFor="organizer-pin">Organizer PIN</label><input id="organizer-pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} autoFocus required />{error && <p className="field-error" role="alert">{error}</p>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving || pin.length < 4}>{saving ? 'Opening…' : 'Open organizer area'}</button></div></form></ModalShell>
+  return <ModalShell title="Edit & Approve" onClose={onClose}><p className="modal-intro">Enter the family PIN to edit the schedule or approve requests.</p><form onSubmit={submit}><label htmlFor="organizer-pin">Family PIN</label><input id="organizer-pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} autoFocus required />{error && <p className="field-error" role="alert">{error}</p>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving || pin.length < 4}>{saving ? 'Opening…' : 'Open Edit & Approve'}</button></div></form></ModalShell>
 }
 function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: () => void; onSave: (id: string, name: string, phone: string) => Promise<boolean> }) {
   const [name, setName] = useState('')
@@ -713,7 +726,7 @@ function ApprovalModal({ request, onClose, onApprove }: { request: ApprovalReque
 }
 
 function HelpModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>See where support is needed.</strong> The top button shows only open rides, time to spend with Mary, errands, Coco care, and other support times.</p></div><div><span>2</span><p><strong>Share when you are free.</strong> Add your name, phone number, dates, and hours. Tap your availability later to edit several dates together.</p></div><div><span>3</span><p><strong>Request an open time.</strong> Every request waits for Mary or Stu to approve it from their email.</p></div><div><span>4</span><p><strong>Tap a schedule item to edit it.</strong> Mary or Stu can change who it is for, the support needed, the date, the times, or remove it.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
+  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>See where support is needed.</strong> Choose Help Needed at the top to see open rides, time with Mary, errands, Coco care, and other support times.</p></div><div><span>2</span><p><strong>Share when you are free.</strong> Choose Add Availability and enter your dates and hours. You can edit your own availability later from the same phone or browser.</p></div><div><span>3</span><p><strong>Request an open time.</strong> Choose a time that works for you. Your request will wait for family approval.</p></div><div><span>4</span><p><strong>Edit or approve.</strong> The family can use Edit &amp; Approve with their private PIN to change the schedule and review requests.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
 }
 
 export default App

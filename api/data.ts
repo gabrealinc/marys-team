@@ -80,6 +80,7 @@ async function ensureSchema() {
     )
   `
   await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE availability ADD COLUMN IF NOT EXISTS owner_key_hash TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS helper_phone TEXT`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS end_time TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS repeat_group_id TEXT`
@@ -129,6 +130,26 @@ function organizerAttemptKey(request: VercelRequest, secret: string) {
   const forwarded = request.headers['x-forwarded-for']
   const address = (Array.isArray(forwarded) ? forwarded[0] : forwarded || request.headers['x-real-ip'] || 'unknown').toString().split(',')[0].trim()
   return createHmac('sha256', secret).update(address).digest('hex')
+}
+
+function helperOwnerHash(token: string, secret: string) {
+  return createHmac('sha256', secret).update(token).digest('hex')
+}
+
+function helperOwnerFromRequest(request: VercelRequest) {
+  const token = request.cookies?.marys_helper
+  const secret = process.env.ORGANIZER_SESSION_SECRET?.trim()
+  if (!token || !secret || !/^[0-9a-f-]{36}$/i.test(token)) return ''
+  return helperOwnerHash(token, secret)
+}
+
+function ensureHelperOwner(request: VercelRequest, response: VercelResponse) {
+  const secret = process.env.ORGANIZER_SESSION_SECRET?.trim()
+  if (!secret) throw new Error('Private availability editing is not connected yet.')
+  const existingToken = request.cookies?.marys_helper
+  const token = existingToken && /^[0-9a-f-]{36}$/i.test(existingToken) ? existingToken : randomUUID()
+  if (!existingToken) response.setHeader('Set-Cookie', `marys_helper=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=31536000`)
+  return helperOwnerHash(token, secret)
 }
 
 function organizerAuthorized(request: VercelRequest) {
@@ -361,6 +382,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (request.method === 'GET') {
+      const helperOwner = helperOwnerFromRequest(request)
       const events = await sql`
         SELECT team_events.id,
           CASE WHEN category = 'dad' THEN 'family' ELSE category END AS category,
@@ -382,12 +404,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ORDER BY event_date ASC, team_events.created_at ASC
       `
       const availability = await sql`
-        SELECT id, name, phone, available_day AS day, available_time AS time, note
+        SELECT id, name, phone, available_day AS day, available_time AS time, note, owner_key_hash AS "ownerKeyHash"
         FROM availability
         ORDER BY created_at DESC
       `
       const publicEvents = events.map((event) => isOrganizer ? event : { ...event, requesterName: undefined })
-      return response.status(200).json({ events: publicEvents, availability, organizer: isOrganizer })
+      const publicAvailability = availability.map(({ ownerKeyHash, ...entry }) => ({
+        ...entry,
+        editable: isOrganizer || !ownerKeyHash || ownerKeyHash === helperOwner,
+      }))
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer })
     }
 
     if (request.method !== 'POST') {
@@ -624,6 +650,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (action === 'addAvailabilityBatch') {
+      const ownerKeyHash = ensureHelperOwner(request, response)
       const items = Array.isArray(request.body?.entries) ? request.body.entries.slice(0, 31) as Partial<AvailabilityInput>[] : []
       const entries = items.map((item) => ({
         id: clean(item.id, 80),
@@ -637,15 +664,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
         return sendError(response, 400, 'Please complete your name, phone number, dates, times, and kind of help.')
       }
       const savedRows = await Promise.all(entries.map((entry) => sql`
-        INSERT INTO availability (id, name, phone, available_day, available_time, note)
-        VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
+        INSERT INTO availability (id, name, phone, available_day, available_time, note, owner_key_hash)
+        VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note}, ${ownerKeyHash})
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `))
       await notifyNewAvailability(entries)
-      return response.status(201).json({ entries: savedRows.flat() })
+      return response.status(201).json({ entries: savedRows.flat().map((entry) => ({ ...entry, editable: true })) })
     }
 
     if (action === 'addAvailability') {
+      const ownerKeyHash = ensureHelperOwner(request, response)
       const item = request.body?.entry as Partial<AvailabilityInput> | undefined
       const entry = {
         id: clean(item?.id, 80),
@@ -659,15 +687,16 @@ export default async function handler(request: VercelRequest, response: VercelRe
         return sendError(response, 400, 'Please add your name, phone number, day, and time.')
       }
       const [saved] = await sql`
-        INSERT INTO availability (id, name, phone, available_day, available_time, note)
-        VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note})
+        INSERT INTO availability (id, name, phone, available_day, available_time, note, owner_key_hash)
+        VALUES (${entry.id}, ${entry.name}, ${entry.phone}, ${entry.day}, ${entry.time}, ${entry.note}, ${ownerKeyHash})
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `
       await notifyNewAvailability([entry])
-      return response.status(201).json({ entry: saved })
+      return response.status(201).json({ entry: { ...saved, editable: true } })
     }
 
     if (action === 'updateAvailability') {
+      const ownerKeyHash = ensureHelperOwner(request, response)
       const item = request.body?.entry as Partial<AvailabilityInput> | undefined
       const entry = {
         id: clean(item?.id, 80),
@@ -680,9 +709,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!entry.id || !entry.name || !entry.phone || !entry.day || !entry.time || !entry.note) {
         return sendError(response, 400, 'Please complete your name, phone number, date, time, and kind of help.')
       }
+      const ownedRows = await sql`SELECT owner_key_hash AS "ownerKeyHash" FROM availability WHERE id = ${entry.id}`
+      if (!ownedRows.length) return sendError(response, 404, 'This availability could not be found. The page may have changed.')
+      if (!isOrganizer && ownedRows[0].ownerKeyHash && ownedRows[0].ownerKeyHash !== ownerKeyHash) return sendError(response, 403, 'Only the person who added this availability can change it.')
       const rows = await sql`
         UPDATE availability
-        SET name = ${entry.name}, phone = ${entry.phone}, available_day = ${entry.day}, available_time = ${entry.time}, note = ${entry.note}
+        SET name = ${entry.name}, phone = ${entry.phone}, available_day = ${entry.day}, available_time = ${entry.time}, note = ${entry.note},
+          owner_key_hash = COALESCE(owner_key_hash, ${ownerKeyHash})
         WHERE id = ${entry.id}
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `
@@ -691,6 +724,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (action === 'updateAvailabilityBatch') {
+      const ownerKeyHash = ensureHelperOwner(request, response)
       const items = Array.isArray(request.body?.entries) ? request.body.entries.slice(0, 31) as Partial<AvailabilityInput>[] : []
       const entries = items.map((item) => ({
         id: clean(item.id, 80),
@@ -703,9 +737,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!entries.length || entries.some((entry) => !entry.id || !entry.name || !entry.phone || !entry.day || !entry.time || !entry.note)) {
         return sendError(response, 400, 'Please complete your name, phone number, dates, times, and kind of help.')
       }
+      const ownership = await Promise.all(entries.map((entry) => sql`SELECT owner_key_hash AS "ownerKeyHash" FROM availability WHERE id = ${entry.id}`))
+      if (ownership.some((rows) => !rows.length)) return sendError(response, 404, 'One of these dates could not be found. Please refresh and try again.')
+      if (!isOrganizer && ownership.some((rows) => rows[0].ownerKeyHash && rows[0].ownerKeyHash !== ownerKeyHash)) return sendError(response, 403, 'You can only change availability you added from this device.')
       const savedRows = await Promise.all(entries.map((entry) => sql`
         UPDATE availability
-        SET name = ${entry.name}, phone = ${entry.phone}, available_day = ${entry.day}, available_time = ${entry.time}, note = ${entry.note}
+        SET name = ${entry.name}, phone = ${entry.phone}, available_day = ${entry.day}, available_time = ${entry.time}, note = ${entry.note},
+          owner_key_hash = COALESCE(owner_key_hash, ${ownerKeyHash})
         WHERE id = ${entry.id}
         RETURNING id, name, phone, available_day AS day, available_time AS time, note
       `))
@@ -717,6 +755,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
     if (action === 'deleteAvailability') {
       const availabilityId = clean(request.body?.availabilityId, 80)
       if (!availabilityId) return sendError(response, 400, 'Choose the availability you want to remove.')
+      const ownerKeyHash = helperOwnerFromRequest(request)
+      const ownedRows = await sql`SELECT owner_key_hash AS "ownerKeyHash" FROM availability WHERE id = ${availabilityId}`
+      if (!ownedRows.length) return sendError(response, 404, 'This availability was already removed.')
+      if (!isOrganizer && ownedRows[0].ownerKeyHash && ownedRows[0].ownerKeyHash !== ownerKeyHash) return sendError(response, 403, 'Only the person who added this availability can remove it.')
       const rows = await sql`DELETE FROM availability WHERE id = ${availabilityId} RETURNING id`
       if (!rows.length) return sendError(response, 404, 'This availability was already removed.')
       return response.status(200).json({ id: availabilityId })
@@ -725,6 +767,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
     if (action === 'deleteAvailabilityBatch') {
       const availabilityIds = Array.isArray(request.body?.availabilityIds) ? request.body.availabilityIds.slice(0, 31).map((id: unknown) => clean(id, 80)).filter(Boolean) : []
       if (!availabilityIds.length) return sendError(response, 400, 'Choose at least one availability date to remove.')
+      const ownerKeyHash = helperOwnerFromRequest(request)
+      const ownership = await Promise.all(availabilityIds.map((id: string) => sql`SELECT owner_key_hash AS "ownerKeyHash" FROM availability WHERE id = ${id}`))
+      if (ownership.some((rows) => !rows.length)) return sendError(response, 404, 'One of these dates was already removed.')
+      if (!isOrganizer && ownership.some((rows) => rows[0].ownerKeyHash && rows[0].ownerKeyHash !== ownerKeyHash)) return sendError(response, 403, 'You can only remove availability you added from this device.')
       await Promise.all(availabilityIds.map((id: string) => sql`DELETE FROM availability WHERE id = ${id}`))
       return response.status(200).json({ ids: availabilityIds })
     }
