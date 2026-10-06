@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  CalendarDays, Check, CircleHelp, Clock3, HeartHandshake,
+  CalendarDays, Check, ChevronLeft, ChevronRight, CircleHelp, Clock3, HeartHandshake,
   Home, ListChecks, Pencil, Repeat2, Trash2, UserRound, Users, Utensils, X,
 } from 'lucide-react'
 import './App.css'
@@ -470,11 +470,11 @@ function App() {
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
             <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'week'} className={view === 'week' ? 'active' : ''} type="button" onClick={() => setView('week')}><CalendarDays aria-hidden="true" /> This Week</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
-          <p className="schedule-view-note">{view === 'upcoming' ? 'Rides and one-time needs are shown first, followed by routine coverage times.' : view === 'month' ? 'Every schedule item for the next 30 days.' : 'This calendar runs Sunday through Saturday.'}</p>
+          <p className="schedule-view-note">{view === 'upcoming' ? 'Rides and one-time needs are shown first, followed by routine coverage times.' : view === 'month' ? 'See the whole month at a glance. Tap any date to see its details.' : 'This calendar runs Sunday through Saturday.'}</p>
           {view === 'upcoming' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
             {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
           </div>}
-          {!loading && (view !== 'week' ? <div className="event-list">
+          {!loading && (view === 'upcoming' ? <div className="event-list">
             {visibleEvents.length ? visibleEvents.map((event) => {
               const WhoIcon = whoDetails[event.forWho].icon
               const helper = helpers[event.id] || event.helper
@@ -488,7 +488,7 @@ function App() {
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly={view === 'upcoming'} />}
-          </div> : <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
+          </div> : view === 'week' ? <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} /> : <MonthCalendar events={teamEvents} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
         </section>
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>
@@ -559,6 +559,52 @@ function WeekCalendar({ events, helpers, availability, onOpen }: { events: TeamE
     const matches = isNoSupport(event.helpNeeded) ? [] : availablePeople.filter((entry) => availabilityMatchesTime(entry.time, event.time, event.endTime))
     return <button type="button" key={event.id} disabled={!onOpen} onClick={() => onOpen?.(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeRangeLabel(event)}</small>{event.proposalType && helper ? <em>{event.proposalType === 'food' ? 'Food from' : 'Stopping by:'} {helper}</em> : isNoSupport(event.helpNeeded) ? <em>Busy</em> : helper ? <em>Confirmed with {helper}</em> : event.requestPending ? <em>Request submitted</em> : <em>{event.helpNeeded}</em>}{!helper && !event.requestPending && matches.length > 0 && <em className="availability-match">Available then: {matches.map((entry) => entry.name).join(', ')}</em>}</span></button>
   }) : <p>No plans.</p>}</div></section>)}</div>
+}
+
+function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (eventId: string) => void }) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const [monthDate, setMonthDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
+  const [selectedDateKey, setSelectedDateKey] = useState('')
+  const first = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const gridStart = new Date(first)
+  gridStart.setDate(first.getDate() - first.getDay())
+  const days = Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(gridStart)
+    date.setDate(gridStart.getDate() + index)
+    const dateKey = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+    return {
+      date,
+      dateKey,
+      events: events.filter((event) => !event.isFlexible && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time)),
+      inMonth: date.getMonth() === monthDate.getMonth(),
+      isToday: date.getTime() === today.getTime(),
+    }
+  })
+  const selectedDay = days.find((day) => day.dateKey === selectedDateKey)
+  const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+  const changeMonth = (amount: number) => setMonthDate(new Date(monthDate.getFullYear(), monthDate.getMonth() + amount, 1))
+  return <>
+    <div className="month-calendar" role="region" aria-label={`${monthLabel} calendar`}>
+      <div className="month-calendar-heading">
+        <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous month"><ChevronLeft aria-hidden="true" /></button>
+        <h3>{monthLabel}</h3>
+        <button type="button" onClick={() => changeMonth(1)} aria-label="Next month"><ChevronRight aria-hidden="true" /></button>
+      </div>
+      <div className="month-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="month-grid">{days.map((day) => {
+        const label = day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no plans'}`}>
+          <span className="month-number">{day.date.getDate()}</span>
+          <span className="month-event-count">{day.events.length ? `${day.events.length} ${day.events.length === 1 ? 'item' : 'items'}` : ''}</span>
+          <span className="month-event-preview">{day.events.slice(0, 2).map((event) => <span key={event.id}><i className={`calendar-dot ${event.category}`} />{event.title}</span>)}</span>
+        </button>
+      })}</div>
+    </div>
+    {selectedDay && <ModalShell title={selectedDay.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} onClose={() => setSelectedDateKey('')}>
+      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event.id) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeRangeLabel(event)} · {whoDetails[event.forWho].label}</small><em>{isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
+    </ModalShell>}
+  </>
 }
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
