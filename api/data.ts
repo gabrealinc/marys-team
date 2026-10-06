@@ -916,6 +916,47 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ person, inTown })
     }
 
+    if (action === 'saveFamilyBusyDates') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to update work or away days.')
+      const person = clean(request.body?.person, 20)
+      const dates = Array.isArray(request.body?.dates) ? [...new Set(request.body.dates.map((date: unknown) => clean(date, 8)).filter((date: string) => /^\d{8}$/.test(date)))].slice(0, 60) : []
+      const startTime = clean(request.body?.startTime, 5)
+      const endTime = clean(request.body?.endTime, 5)
+      const rangeStart = clean(request.body?.rangeStart, 8)
+      const rangeEnd = clean(request.body?.rangeEnd, 8)
+      if (!['Stu', 'Gabby', 'Spencer'].includes(person)) return sendError(response, 400, 'Choose Stu, Gabby, or Spencer.')
+      if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= startTime) return sendError(response, 400, 'Choose valid starting and ending times.')
+      if (!/^\d{8}$/.test(rangeStart) || !/^\d{8}$/.test(rangeEnd) || rangeEnd < rangeStart) return sendError(response, 400, 'Choose a valid calendar range.')
+      const tracked = await sql`
+        SELECT id, SUBSTRING(event_date, 1, 8) AS day, schedule_source AS "scheduleSource"
+        FROM team_events
+        WHERE for_who = ${person}
+          AND SUBSTRING(event_date, 1, 8) BETWEEN ${rangeStart} AND ${rangeEnd}
+          AND (schedule_source = 'family_busy' OR (${person} = 'Stu' AND schedule_source = 'stu_work'))
+      `
+      const selected = new Set(dates)
+      for (const row of tracked) {
+        const day = String(row.day)
+        if (!selected.has(day)) {
+          if (row.scheduleSource === 'stu_work') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${day}) ON CONFLICT DO NOTHING`
+          await sql`DELETE FROM team_events WHERE id = ${String(row.id)}`
+        }
+      }
+      for (const day of dates) {
+        const matching = tracked.find((row) => String(row.day) === day && selected.has(day))
+        const isoDate = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`
+        const dayLabel = new Date(`${isoDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        const title = person === 'Stu' ? 'Stu at Work' : `${person} Work or Away`
+        if (matching) {
+          if (matching.scheduleSource === 'stu_work') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${day}) ON CONFLICT DO NOTHING`
+          await sql`UPDATE team_events SET event_date = ${`${day}T${startTime.replace(':', '')}00`}, day_label = ${dayLabel}, event_time = ${startTime}, end_time = ${endTime}, title = ${title}, details = ${`${person} is working or away.`}, help_needed = 'Spend time with Mary', schedule_source = 'family_busy', is_schedule_exception = TRUE WHERE id = ${String(matching.id)}`
+        } else {
+          await sql`INSERT INTO team_events (id, category, for_who, event_date, day_label, event_time, end_time, title, details, location, help_needed, schedule_source, is_schedule_exception) VALUES (${randomUUID()}, 'family', ${person}, ${`${day}T${startTime.replace(':', '')}00`}, ${dayLabel}, ${startTime}, ${endTime}, ${title}, ${`${person} is working or away.`}, 'Home', 'Spend time with Mary', 'family_busy', TRUE)`
+        }
+      }
+      return response.status(200).json({ saved: dates.length })
+    }
+
     if (action === 'addEvent' || action === 'addEventBatch') {
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const items: unknown[] = action === 'addEventBatch'
