@@ -15,6 +15,7 @@ type Availability = { id: string; name: string; phone: string; day: string; time
 type ApprovalRequest = { status: string; requesterName: string; requesterPhone: string; requesterEmail: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
 type PendingRequest = { id: string; eventId: string; requesterName: string; requesterPhone: string; requesterEmail: string; notificationSentAt?: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
 type StuWorkDefaults = { weekdays: number[]; startTime: string; endTime: string }
+type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
 
 const whoDetails = {
   Mary: { label: 'For Mary', icon: HeartHandshake },
@@ -161,19 +162,18 @@ function localDateInputValue(date = new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
 }
 
-function nextFoodDate() {
+function nextFoodDate(weekdays = [1, 3]) {
   const date = new Date()
-  while (![0, 1, 3].includes(date.getDay())) date.setDate(date.getDate() + 1)
+  while (!weekdays.includes(date.getDay())) date.setDate(date.getDate() + 1)
   return localDateInputValue(date)
 }
 
-function calendarWeekKey(dateKey: string) {
-  if (!/^\d{8}$/.test(dateKey)) return ''
-  const date = new Date(`${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}T12:00:00`)
-  date.setDate(date.getDate() - date.getDay())
-  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+function isCoveredByFamily(event: TeamEvent, events: TeamEvent[]) {
+  const support = event.helpNeeded.toLocaleLowerCase()
+  if (!(support.includes('mary') || support.includes('check-in') || support.includes('visit'))) return false
+  const dateKey = event.date.slice(0, 8)
+  return events.some((coverage) => coverage.scheduleSource === 'family_coverage' && coverage.date.slice(0, 8) === dateKey && (coverage.isFlexible || (coverage.time < event.endTime && coverage.endTime > event.time)))
 }
-
 
 async function apiRequest(body?: unknown) {
   const response = await fetch('/api/data', body ? {
@@ -201,6 +201,7 @@ function App() {
   const [showPlanRequest, setShowPlanRequest] = useState<PlanType | null>(null)
   const [showHelp, setShowHelp] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
+  const [coveragePerson, setCoveragePerson] = useState<ForWho | null>(null)
   const [addForWho, setAddForWho] = useState<ForWho>('Mary')
   const [editingAvailability, setEditingAvailability] = useState<Availability | null>(null)
   const [approvalToken, setApprovalToken] = useState(() => new URLSearchParams(window.location.search).get('approve') || '')
@@ -210,10 +211,11 @@ function App() {
   const [showOrganizerLogin, setShowOrganizerLogin] = useState(false)
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
   const [stuWorkDefaults, setStuWorkDefaults] = useState<StuWorkDefaults | null>(null)
+  const [foodSettings, setFoodSettings] = useState<FoodSettings>({ weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
   const [foodReservedDates, setFoodReservedDates] = useState<string[]>([])
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const visibleEvents = teamEvents
-    .filter((event) => (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view === 'month' || (!isNoSupport(event.helpNeeded) && !event.helper && matchesSupportFilter(event, filter))))
+    .filter((event) => (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view === 'month' || (!isNoSupport(event.helpNeeded) && !event.helper && !isCoveredByFamily(event, teamEvents) && matchesSupportFilter(event, filter))))
     .sort((a, b) => view === 'upcoming' ? helpNeededPriority(a) - helpNeededPriority(b) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
@@ -229,6 +231,7 @@ function App() {
       setAvailability(data.availability)
       setOrganizer(Boolean(data.organizer))
       setStuWorkDefaults(data.stuWorkDefaults || null)
+      setFoodSettings(data.foodSettings || { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
       setFoodReservedDates(Array.isArray(data.foodReservedDates) ? data.foodReservedDates : [])
       setCloudError('')
     } catch (error) {
@@ -246,6 +249,7 @@ function App() {
       setAvailability(data.availability)
       setOrganizer(Boolean(data.organizer))
       setStuWorkDefaults(data.stuWorkDefaults || null)
+      setFoodSettings(data.foodSettings || { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
       setCloudError('')
       void apiRequest({ action: 'retryPendingNotifications' }).catch(() => undefined)
       if (data.organizer) await loadPendingRequests()
@@ -314,6 +318,32 @@ function App() {
       setMessage(error instanceof Error ? error.message : 'We could not save Stu’s work hours. Please try again.')
       return false
     }
+  }
+
+  async function saveFoodSettings(settings: FoodSettings) {
+    try {
+      const result = await apiRequest({ action: 'saveFoodSettings', ...settings })
+      setFoodSettings(result.foodSettings)
+      setMessage('Food drop-off days were updated.')
+      window.setTimeout(() => setMessage(''), 5000)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not update food drop-off days.')
+      return false
+    }
+  }
+
+  async function saveFamilyCoverage(person: ForWho, dates: string[], allDay: boolean, startTime: string, endTime: string) {
+    const coverageEvents: TeamEvent[] = dates.map((dateKey) => {
+      const date = `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`
+      return { id: crypto.randomUUID(), category: 'family', forWho: person, date: compactEventDate(date, allDay ? '00:00' : startTime), dayLabel: dayLabelForDate(date), time: allDay ? 'anytime' : startTime, endTime: allDay ? 'anytime' : endTime, title: `${person} with Mary`, details: `${person} is available to be with Mary.`, helpNeeded: 'No help needed', scheduleSource: 'family_coverage', isFlexible: allDay }
+    })
+    const saved = await saveEvents(coverageEvents)
+    if (saved) {
+      setMessage(`${person}’s time with Mary was saved. Overlapping routine support times are now covered.`)
+      window.setTimeout(() => setMessage(''), 5000)
+    }
+    return saved
   }
 
   async function saveHelper(eventId: string, name: string, phone: string, email: string, startTime: string, endTime: string, note: string) {
@@ -476,7 +506,7 @@ function App() {
           </div>
         </section>
         <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Choose what works for you above. Availability means the family may call if something comes up. It does not sign you up for anything.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
-        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} stuWorkDefaults={stuWorkDefaults} onSaveStuWorkHours={saveStuWorkHours} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
+        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} stuWorkDefaults={stuWorkDefaults} foodSettings={foodSettings} onSaveStuWorkHours={saveStuWorkHours} onSaveFoodSettings={saveFoodSettings} onAddCoverage={setCoveragePerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
@@ -516,9 +546,10 @@ function App() {
       {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} />}
       {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
-      {showPlanRequest && <PlanRequestModal type={showPlanRequest} events={teamEvents} foodReservedDates={foodReservedDates} onClose={() => setShowPlanRequest(null)} onSave={saveProposedPlan} />}
+      {showPlanRequest && <PlanRequestModal type={showPlanRequest} events={teamEvents} foodSettings={foodSettings} foodReservedDates={foodReservedDates} onClose={() => setShowPlanRequest(null)} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => (phoneKey(editingAvailability.phone) ? phoneKey(entry.phone) === phoneKey(editingAvailability.phone) : entry.name.trim().toLocaleLowerCase() === editingAvailability.name.trim().toLocaleLowerCase()) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
       {showAdd && <AddEventModal initialForWho={addForWho} availability={availability} events={teamEvents} onClose={() => setShowAdd(false)} onSave={saveEvents} />}
+      {coveragePerson && <FamilyCoverageModal person={coveragePerson} onClose={() => setCoveragePerson(null)} onSave={async (dates, allDay, startTime, endTime) => { const saved = await saveFamilyCoverage(coveragePerson, dates, allDay, startTime, endTime); if (saved) setCoveragePerson(null); return saved }} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {approvalRequest && <ApprovalModal request={approvalRequest} onClose={() => setApprovalRequest(null)} onDecide={decideApprovalRequest} />}
       {showOrganizerLogin && <OrganizerLoginModal onClose={() => setShowOrganizerLogin(false)} onLogin={organizerLogin} />}
@@ -644,7 +675,7 @@ function EventDetailsModal({ event, organizer, availability, onClose, onEdit }: 
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
   </ModalShell>
 }
-function OrganizerPanel({ requests, events, stuWorkDefaults, onSaveStuWorkHours, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; stuWorkDefaults: StuWorkDefaults | null; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
+function OrganizerPanel({ requests, events, stuWorkDefaults, foodSettings, onSaveStuWorkHours, onSaveFoodSettings, onAddCoverage, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; stuWorkDefaults: StuWorkDefaults | null; foodSettings: FoodSettings; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onAddCoverage: (person: ForWho) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
   const [tab, setTab] = useState<'requests' | 'work'>('requests')
   const [declining, setDeclining] = useState<PendingRequest | null>(null)
   const workKey = stuWorkDefaults ? `${stuWorkDefaults.weekdays.join(',')}-${stuWorkDefaults.startTime}-${stuWorkDefaults.endTime}` : 'new'
@@ -654,7 +685,7 @@ function OrganizerPanel({ requests, events, stuWorkDefaults, onSaveStuWorkHours,
       <button role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'active' : ''} type="button" onClick={() => setTab('requests')}><Check aria-hidden="true" /> Requests{requests.length ? ` (${requests.length})` : ''}</button>
       <button role="tab" aria-selected={tab === 'work'} className={tab === 'work' ? 'active' : ''} type="button" onClick={() => setTab('work')}><Clock3 aria-hidden="true" /> Family Schedule</button>
     </div>
-    {tab === 'requests' ? requests.length ? <><p className="organizer-intro">Review support sign-ups, food drop-offs, and stop-by requests below. Contact information stays inside this private family area.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div><button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div> : <FamilyScheduleEditor key={workKey} events={events} defaults={stuWorkDefaults} onSaveStu={onSaveStuWorkHours} onAdd={onAddSchedule} onEdit={onEditEvent} />}
+    {tab === 'requests' ? requests.length ? <><p className="organizer-intro">Review support sign-ups, food drop-offs, and stop-by requests below. Contact information stays inside this private family area.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div><button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div> : <FamilyScheduleEditor key={workKey} events={events} defaults={stuWorkDefaults} foodSettings={foodSettings} onSaveStu={onSaveStuWorkHours} onSaveFood={onSaveFoodSettings} onAddCoverage={onAddCoverage} onAdd={onAddSchedule} onEdit={onEditEvent} />}
     {declining && <DeclineRequestModal name={declining.requesterName} onClose={() => setDeclining(null)} onDecline={(reason) => { onDecide(declining.id, 'decline', reason); setDeclining(null) }} />}
   </section>
 }
@@ -664,12 +695,15 @@ function DeclineRequestModal({ name, onClose, onDecline }: { name: string; onClo
   return <ModalShell title="Decline this request" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (reason.trim()) onDecline(reason.trim()) }}><p className="modal-intro">Add a short, kind reason for {name}. It will be included in their email when an email address is available.</p><label htmlFor="decline-reason">Reason</label><textarea id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: We no longer need coverage at this time." autoFocus required /><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="danger-button" type="submit" disabled={!reason.trim()}>Decline request</button></div></form></ModalShell>
 }
 
-function FamilyScheduleEditor({ events, defaults, onSaveStu, onAdd, onEdit }: { events: TeamEvent[]; defaults: StuWorkDefaults | null; onSaveStu: (defaults: StuWorkDefaults) => Promise<boolean>; onAdd: (forWho: ForWho) => void; onEdit: (event: TeamEvent) => void }) {
+function FamilyScheduleEditor({ events, defaults, foodSettings, onSaveStu, onSaveFood, onAddCoverage, onAdd, onEdit }: { events: TeamEvent[]; defaults: StuWorkDefaults | null; foodSettings: FoodSettings; onSaveStu: (defaults: StuWorkDefaults) => Promise<boolean>; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onAddCoverage: (person: ForWho) => void; onAdd: (forWho: ForWho) => void; onEdit: (event: TeamEvent) => void }) {
   const [person, setPerson] = useState<ForWho>('Mary')
   const [weekdays, setWeekdays] = useState(defaults?.weekdays || [1, 2, 3, 4, 5])
   const [startTime, setStartTime] = useState(defaults?.startTime || '09:00')
   const [endTime, setEndTime] = useState(defaults?.endTime || '17:00')
   const [saving, setSaving] = useState(false)
+  const [foodDays, setFoodDays] = useState(foodSettings.weekdays)
+  const [foodStart, setFoodStart] = useState(foodSettings.startTime)
+  const [foodEnd, setFoodEnd] = useState(foodSettings.endTime)
   const timeIsValid = endTime > startTime
 
   async function submit(event: React.FormEvent) {
@@ -694,7 +728,7 @@ function FamilyScheduleEditor({ events, defaults, onSaveStu, onAdd, onEdit }: { 
   return <div className="work-hours-editor">
     <div className="family-roster" aria-label="Family coverage setup"><div><strong>Mary</strong><span>Mom · Needs full-time care at home</span></div><div><strong>Stu</strong><span>Husband · Lives with Mary full time · Works full time</span></div><div><strong>Gabby</strong><span>Daughter · Lives out of town · In town helping now · Works remotely</span></div><div><strong>Spencer</strong><span>Son · Lives out of town · Not currently in town</span></div></div>
     <div className="family-person-tabs" role="tablist" aria-label="Choose a family member">{(['Mary', 'Stu', 'Gabby', 'Spencer', 'Family'] as ForWho[]).map((name) => <button type="button" role="tab" aria-selected={person === name} className={person === name ? 'active' : ''} onClick={() => setPerson(name)} key={name}>{name}</button>)}</div>
-    <div className="family-schedule-heading"><div><h3>{person}’s schedule</h3><p>{profiles[person]}</p></div><button className="secondary-button" type="button" onClick={() => onAdd(person)}>+ Add to {person}’s schedule</button></div>
+    <div className="family-schedule-heading"><div><h3>{person}’s schedule</h3><p>{profiles[person]}</p></div><div className="family-schedule-actions">{['Stu', 'Gabby', 'Spencer'].includes(person) && <button className="primary-button" type="button" onClick={() => onAddCoverage(person)}><CalendarDays aria-hidden="true" /> Select days with Mary</button>}<button className="secondary-button" type="button" onClick={() => onAdd(person)}>+ Add an appointment or time away</button></div></div>
     {upcoming.length ? <div className="family-schedule-list">{upcoming.map((event) => <button type="button" key={event.id} onClick={() => onEdit(event)}><span><strong>{event.title}</strong><small>{event.dayLabel} · {eventTimeRangeLabel(event)}</small></span><span>{event.helpNeeded}</span><Pencil aria-hidden="true" /></button>)}</div> : <div className="organizer-empty"><CalendarDays aria-hidden="true" /><p><strong>No upcoming items for {person}.</strong><br />Add work, appointments, visits, time away, or personal plans here.</p></div>}
     {person === 'Stu' && <><div className="family-schedule-divider" /><div><h3>Stu’s weekly work default</h3><p>Choose Stu’s normal workdays and hours. This fills the upcoming schedule for the next 90 days.</p></div><form onSubmit={submit}>
       <fieldset className="weekday-picker"><legend>Which days does Stu normally work?</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={weekdays.includes(day.value)} onChange={() => setWeekdays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset>
@@ -707,7 +741,7 @@ function FamilyScheduleEditor({ events, defaults, onSaveStu, onAdd, onEdit }: { 
     {person === 'Mary' && <p className="work-hours-tip"><strong>Mary’s appointments matter.</strong> Home visits, massage, PT, nurses, and outside appointments block conflicting food or visit times automatically.</p>}
     {person === 'Gabby' && <p className="work-hours-tip"><strong>Gabby is currently in town.</strong> Add the hours when she is working, away, or needs a break. Choose “Spend time with Mary” when someone else should cover that time.</p>}
     {person === 'Spencer' && <p className="work-hours-tip"><strong>Spencer is currently out of town.</strong> Add his visit dates when known, then add any working or away times during the visit.</p>}
-    {person === 'Family' && <p className="work-hours-tip"><strong>Food drop-offs:</strong> Sunday, Monday, and Wednesday from 2–6 PM. The Bring Food form automatically blocks dates already filled or times that conflict with Mary’s appointments.</p>}
+    {person === 'Family' && <form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the days and hours shown in Bring Food. Filled dates are hidden automatically.</p><fieldset className="weekday-picker"><legend>Available days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save food days</button></div></form>}
   </div>
 }
 
@@ -745,27 +779,28 @@ function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: ()
   return <ModalShell title="Tell us when you can come" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.isFlexible ? 'Anytime' : `${event.dayLabel}, help is welcome anytime from ${eventTimeRangeLabel(event)}`}</span><p>{event.helpNeeded}</p></div><form onSubmit={submit}>{!event.isFlexible && <><p className="form-note"><strong>You do not need to cover the entire window.</strong> Choose the time that actually works for you.</p><div className="field-row"><div><label htmlFor="helper-start">I can arrive at</label><input id="helper-start" type="time" min={event.time} max={event.endTime} value={startTime} onChange={(e) => setStartTime(e.target.value)} required /></div><div><label htmlFor="helper-end">I need to leave at</label><input id="helper-end" type="time" min={event.time} max={event.endTime} value={endTime} onChange={(e) => setEndTime(e.target.value)} required /></div></div>{!timeIsValid && <p className="field-error">Choose a start and end time inside the open window.</p>}</>}<label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><label htmlFor="helper-phone">Your phone number</label><input id="helper-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" required /><label htmlFor="helper-email">Your email address</label><input id="helper-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required /><label htmlFor="helper-note">Note or question <span>(optional)</span></label><textarea id="helper-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Example: Is 1–4 PM enough coverage, or would another day be more useful?" /><p className="form-note">Your exact time and note will be included with your request. We will email you after it is approved or declined.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Submitting…' : 'Submit this time'}</button></div></form></ModalShell>
 }
 
-function PlanRequestModal({ type, events, foodReservedDates, onClose, onSave }: { type: PlanType; events: TeamEvent[]; foodReservedDates: string[]; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
+function PlanRequestModal({ type, events, foodSettings, foodReservedDates, onClose, onSave }: { type: PlanType; events: TeamEvent[]; foodSettings: FoodSettings; foodReservedDates: string[]; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
   const [contact] = useState(savedHelperContact)
   const [name, setName] = useState(contact.name)
   const [phone, setPhone] = useState(contact.phone)
   const [email, setEmail] = useState(contact.email)
-  const [date, setDate] = useState(() => type === 'food' ? nextFoodDate() : localDateInputValue())
-  const [time, setTime] = useState(type === 'food' ? '17:00' : '12:00')
-  const [endTime, setEndTime] = useState(type === 'food' ? '17:30' : '13:00')
+  const [date, setDate] = useState(() => type === 'food' ? nextFoodDate(foodSettings.weekdays) : localDateInputValue())
+  const [time, setTime] = useState(type === 'food' ? foodSettings.startTime : '12:00')
+  const [endTime, setEndTime] = useState(type === 'food' ? addMinutes(foodSettings.startTime, 30) : '13:00')
   const [details, setDetails] = useState('')
   const [dropOffPlace, setDropOffPlace] = useState('Front door')
   const [saving, setSaving] = useState(false)
   const timeIsValid = endTime > time
   const compactDate = date.replaceAll('-', '')
   const selectedWeekday = new Date(`${date}T12:00:00`).getDay()
-  const foodDayAllowed = type !== 'food' || [0, 1, 3].includes(selectedWeekday)
+  const foodDayAllowed = type !== 'food' || foodSettings.weekdays.includes(selectedWeekday)
   const foodDateIsTaken = type === 'food' && foodReservedDates.includes(compactDate)
   const maryHasAppointmentThen = type === 'food' && events.some((item) => item.forWho === 'Mary' && !item.proposalType && item.date.slice(0, 8) === compactDate && !item.isFlexible && item.time < endTime && item.endTime > time)
-  const mealsThisWeek = type === 'food' ? foodReservedDates.filter((reservedDate) => calendarWeekKey(reservedDate) === calendarWeekKey(compactDate)).length : 0
-  const mealWeekIsCovered = type === 'food' && mealsThisWeek >= 3
-  const foodTimeIsValid = type !== 'food' || (time >= '14:00' && endTime <= '18:00')
-  const foodSlotUnavailable = type === 'food' && (!foodDayAllowed || foodDateIsTaken || mealWeekIsCovered || maryHasAppointmentThen || !foodTimeIsValid)
+  const foodTimeIsValid = type !== 'food' || (time >= foodSettings.startTime && endTime <= foodSettings.endTime)
+  const foodSlotUnavailable = type === 'food' && (!foodDayAllowed || foodDateIsTaken || maryHasAppointmentThen || !foodTimeIsValid)
+  const foodDayNames = foodSettings.weekdays.map((day) => weekdayChoices.find((choice) => choice.value === day)?.label).filter(Boolean).join(' or ')
+  const foodCalendarDays = getThirtyDays()
+  const foodCalendarBlanks = new Date(`${foodCalendarDays[0].dateKey.slice(0, 4)}-${foodCalendarDays[0].dateKey.slice(4, 6)}-${foodCalendarDays[0].dateKey.slice(6, 8)}T12:00:00`).getDay()
 
   function changeStartTime(value: string) {
     setTime(value)
@@ -783,12 +818,12 @@ function PlanRequestModal({ type, events, foodReservedDates, onClose, onSave }: 
   }
 
   return <ModalShell title={type === 'food' ? 'Bring food' : 'Request a time to stop by'} onClose={onClose}>
-    <p className="modal-intro">{type === 'food' ? 'Choose an open Sunday, Monday, or Wednesday between 2–6 PM. One food drop-off is scheduled per day.' : 'Suggest a time to spend with Mary, keep her company, and help with small things while you are there.'}</p>
+    <p className="modal-intro">{type === 'food' ? `Choose an open ${foodDayNames} between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}. Filled dates are unavailable.` : 'Suggest a time to spend with Mary, keep her company, and help with small things while you are there.'}</p>
     <form onSubmit={submit}>
       <label htmlFor="plan-name">Your name</label><input id="plan-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your first and last name" autoComplete="name" autoFocus required />
       <div className="field-row"><div><label htmlFor="plan-phone">Phone number</label><input id="plan-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(602) 555-0123" autoComplete="tel" required /></div><div><label htmlFor="plan-email">Email address</label><input id="plan-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required /></div></div>
-      <label htmlFor="plan-date">Date</label><input id="plan-date" type="date" min={localDateInputValue()} value={date} onChange={(event) => setDate(event.target.value)} required />
-      {type === 'food' && <div className={`meal-week-status ${foodSlotUnavailable ? 'covered' : ''}`} role="status"><Utensils aria-hidden="true" /><p><strong>{!foodDayAllowed ? 'Please choose a Sunday, Monday, or Wednesday.' : foodDateIsTaken ? 'Someone is already bringing food that day.' : mealWeekIsCovered ? 'Meals are covered this week.' : maryHasAppointmentThen ? 'Mary has an appointment during that time.' : !foodTimeIsValid ? 'Choose a time between 2–6 PM.' : `${3 - mealsThisWeek} meal ${3 - mealsThisWeek === 1 ? 'spot' : 'spots'} available this week.`}</strong><br />Choose another date or time if this slot is unavailable.</p></div>}
+      {type === 'food' ? <><label>Choose an open date</label><div className="calendar-date-picker food-date-picker"><div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div><div className="date-picker-grid">{Array.from({ length: foodCalendarBlanks }, (_, index) => <span className="date-picker-blank" key={`food-blank-${index}`} />)}{foodCalendarDays.map((day) => { const isoDate = `${day.dateKey.slice(0, 4)}-${day.dateKey.slice(4, 6)}-${day.dateKey.slice(6, 8)}`; const weekday = new Date(`${isoDate}T12:00:00`).getDay(); const filled = foodReservedDates.includes(day.dateKey); const allowed = foodSettings.weekdays.includes(weekday) && !filled; const selected = date === isoDate; return <button type="button" key={day.dateKey} disabled={!allowed} aria-pressed={selected} aria-label={`${day.fullDay}${filled ? ', filled' : allowed ? ', open' : ', unavailable'}`} onClick={() => setDate(isoDate)}><span>{day.monthShort}</span><strong>{day.number}</strong>{filled && <small>Filled</small>}</button> })}</div></div></> : <><label htmlFor="plan-date">Date</label><input id="plan-date" type="date" min={localDateInputValue()} value={date} onChange={(event) => setDate(event.target.value)} required /></>}
+      {type === 'food' && <div className={`meal-week-status ${foodSlotUnavailable ? 'covered' : ''}`} role="status"><Utensils aria-hidden="true" /><p><strong>{!foodDayAllowed ? `Please choose ${foodDayNames}.` : foodDateIsTaken ? 'Someone is already bringing food that day.' : maryHasAppointmentThen ? 'Mary has an appointment during that time.' : !foodTimeIsValid ? `Choose a time between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}.` : 'This food drop-off time is open.'}</strong><br />Filled dates and appointment conflicts are blocked automatically.</p></div>}
       <div className="field-row"><div><label htmlFor="plan-time">{type === 'food' ? 'Drop off around' : 'Arrive'}</label><input id="plan-time" type="time" value={time} onChange={(event) => changeStartTime(event.target.value)} required /></div><div><label htmlFor="plan-end-time">{type === 'food' ? 'Until' : 'Leave'}</label><input id="plan-end-time" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
       {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
       {type === 'food' && <><label htmlFor="drop-off-place">Where will you leave the food?</label><select id="drop-off-place" value={dropOffPlace} onChange={(event) => setDropOffPlace(event.target.value)}><option>Front door</option><option>Back gate by the garage</option><option>I would like to come inside and say hi</option></select><p className="form-note">For a quick drop-off, text the family when you arrive so someone can bring it inside. To visit, choose the last option so the family knows.</p></>}
@@ -930,6 +965,19 @@ function dayLabelForDate(date: string) {
 
 function compactEventDate(date: string, time: string) {
   return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
+}
+
+function FamilyCoverageModal({ person, onClose, onSave }: { person: ForWho; onClose: () => void; onSave: (dates: string[], allDay: boolean, startTime: string, endTime: string) => Promise<boolean> }) {
+  const days = getThirtyDays()
+  const first = days[0].dateKey
+  const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
+  const [selectedDates, setSelectedDates] = useState<string[]>([])
+  const [allDay, setAllDay] = useState(true)
+  const [startTime, setStartTime] = useState('09:00')
+  const [endTime, setEndTime] = useState('17:00')
+  const [saving, setSaving] = useState(false)
+  const valid = selectedDates.length > 0 && (allDay || endTime > startTime)
+  return <ModalShell title={`When is ${person} with Mary?`} onClose={onClose}><p className="modal-intro">Tap every date {person} will be available. These times automatically cover overlapping “Spend time with Mary” needs.</p><form onSubmit={async (event) => { event.preventDefault(); if (!valid || saving) return; setSaving(true); if (!await onSave(selectedDates, allDay, startTime, endTime)) setSaving(false) }}><div className="calendar-date-picker"><div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div><div className="date-picker-grid">{Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`blank-${index}`} />)}{days.map((day) => { const selected = selectedDates.includes(day.dateKey); return <button type="button" key={day.dateKey} aria-pressed={selected} onClick={() => setSelectedDates(selected ? selectedDates.filter((date) => date !== day.dateKey) : [...selectedDates, day.dateKey])}><span>{day.monthShort}</span><strong>{day.number}</strong></button> })}</div></div><label className="repeat-toggle"><input type="checkbox" checked={allDay} onChange={(event) => setAllDay(event.target.checked)} /><span><Clock3 aria-hidden="true" /><strong>Available all day</strong><small>Turn this off to enter specific hours.</small></span></label>{!allDay && <div className="field-row"><div><label htmlFor="coverage-start">From</label><input id="coverage-start" type="time" value={startTime} onChange={(event) => setStartTime(event.target.value)} required /></div><div><label htmlFor="coverage-end">Until</label><input id="coverage-end" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>}<p className="form-note">{selectedDates.length ? `${selectedDates.length} ${selectedDates.length === 1 ? 'date' : 'dates'} selected.` : 'Select at least one date.'}</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!valid || saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save these dates'}</button></div></form></ModalShell>
 }
 
 function DriverFields({ contacts, driver, onChange }: { contacts: DriverContact[]; driver: DriverContact; onChange: (driver: DriverContact) => void }) {

@@ -21,6 +21,7 @@ type TeamEventInput = {
   helperEmail?: string
   forWho: string
   repeatGroupId?: string
+  scheduleSource?: string
   isFlexible?: boolean
 }
 
@@ -38,6 +39,8 @@ type StuWorkDefaults = {
   startTime: string
   endTime: string
 }
+
+type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
 
 type SupportRequestNotification = {
   id: unknown
@@ -116,6 +119,16 @@ async function ensureSchema() {
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS is_flexible BOOLEAN NOT NULL DEFAULT FALSE`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS is_proposed BOOLEAN NOT NULL DEFAULT FALSE`
   await sql`ALTER TABLE team_events ADD COLUMN IF NOT EXISTS proposal_type TEXT`
+  await sql`
+    CREATE TABLE IF NOT EXISTS food_settings (
+      singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+      weekdays TEXT NOT NULL DEFAULT '1,3',
+      start_time TEXT NOT NULL DEFAULT '14:00',
+      end_time TEXT NOT NULL DEFAULT '18:00',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  await sql`INSERT INTO food_settings (singleton, weekdays, start_time, end_time) VALUES (TRUE, '1,3', '14:00', '18:00') ON CONFLICT (singleton) DO NOTHING`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
   await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
@@ -245,6 +258,7 @@ function parseEventInput(item: Partial<TeamEventInput> | undefined) {
     helperEmail: clean(item?.helperEmail, 200).toLocaleLowerCase(),
     forWho,
     repeatGroupId: clean(item?.repeatGroupId, 80),
+    scheduleSource: clean(item?.scheduleSource, 40),
     isFlexible: Boolean(item?.isFlexible),
   }
 }
@@ -463,8 +477,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (supportRequest.proposalType === 'food') {
         const week = calendarWeekRange(String(supportRequest.date))
         if (!week) throw new Error('This meal date is not valid.')
-        const mealCount = await sql`SELECT COUNT(*)::int AS count FROM team_events WHERE proposal_type = 'food' AND is_proposed = FALSE AND SUBSTRING(event_date, 1, 8) BETWEEN ${week.start} AND ${week.end}`
-        if (Number(mealCount[0]?.count || 0) >= 3) throw new Error('Meals are already covered for that week. Decline this request or ask the person to choose another week.')
       }
 
       const eventId = String(supportRequest.eventId)
@@ -686,7 +698,13 @@ export default async function handler(request: VercelRequest, response: VercelRe
         startTime: String(defaultRows[0].startTime),
         endTime: String(defaultRows[0].endTime),
       } : null
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodReservedDates })
+      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime" FROM food_settings WHERE singleton = TRUE`
+      const foodSettings: FoodSettings = foodRowsSettings.length ? {
+        weekdays: String(foodRowsSettings[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+        startTime: String(foodRowsSettings[0].startTime),
+        endTime: String(foodRowsSettings[0].endTime),
+      } : { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' }
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, foodReservedDates })
     }
 
     if (request.method !== 'POST') {
@@ -854,6 +872,21 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ defaults })
     }
 
+    if (action === 'saveFoodSettings') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change food drop-off days.')
+      const rawWeekdays: unknown[] = Array.isArray(request.body?.weekdays) ? request.body.weekdays : []
+      const weekdays = [...new Set(rawWeekdays.map((value: unknown) => Number(value)).filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6))].sort((a, b) => a - b)
+      const startTime = clean(request.body?.startTime, 20)
+      const endTime = clean(request.body?.endTime, 20)
+      if (!weekdays.length || !/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= startTime) return sendError(response, 400, 'Choose at least one food day and a valid time range.')
+      await sql`
+        INSERT INTO food_settings (singleton, weekdays, start_time, end_time, updated_at)
+        VALUES (TRUE, ${weekdays.join(',')}, ${startTime}, ${endTime}, NOW())
+        ON CONFLICT (singleton) DO UPDATE SET weekdays = EXCLUDED.weekdays, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, updated_at = NOW()
+      `
+      return response.status(200).json({ foodSettings: { weekdays, startTime, endTime } })
+    }
+
     if (action === 'addEvent' || action === 'addEventBatch') {
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const items: unknown[] = action === 'addEventBatch'
@@ -862,18 +895,18 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const events = items.map((item) => parseEventInput(item as Partial<TeamEventInput> | undefined))
       if (!events.length || events.some((event) => !eventIsValid(event))) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
       const savedRows = await Promise.all(events.map((event) => sql`
-        INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, helper, helper_phone, helper_email, repeat_group_id, for_who, is_flexible)
-        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.helper || null}, ${event.helperPhone || null}, ${event.helperEmail || null}, ${event.repeatGroupId || null}, ${event.forWho}, ${event.isFlexible})
+        INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, helper, helper_phone, helper_email, repeat_group_id, for_who, schedule_source, is_flexible)
+        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.helper || null}, ${event.helperPhone || null}, ${event.helperEmail || null}, ${event.repeatGroupId || null}, ${event.forWho}, ${event.scheduleSource || null}, ${event.isFlexible})
         ON CONFLICT (id) DO UPDATE SET
           category = EXCLUDED.category, event_date = EXCLUDED.event_date, day_label = EXCLUDED.day_label,
           event_time = EXCLUDED.event_time, end_time = EXCLUDED.end_time, title = EXCLUDED.title,
           details = EXCLUDED.details, location = EXCLUDED.location, help_needed = EXCLUDED.help_needed,
           helper = EXCLUDED.helper, helper_phone = EXCLUDED.helper_phone, helper_email = EXCLUDED.helper_email,
-          repeat_group_id = EXCLUDED.repeat_group_id, for_who = EXCLUDED.for_who, is_flexible = EXCLUDED.is_flexible
+          repeat_group_id = EXCLUDED.repeat_group_id, for_who = EXCLUDED.for_who, schedule_source = EXCLUDED.schedule_source, is_flexible = EXCLUDED.is_flexible
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
           event_time AS time, end_time AS "endTime", title, details, location,
           help_needed AS "helpNeeded", helper, helper_phone AS "helperPhone", helper_email AS "helperEmail",
-          repeat_group_id AS "repeatGroupId", for_who AS "forWho", is_flexible AS "isFlexible"
+          repeat_group_id AS "repeatGroupId", for_who AS "forWho", schedule_source AS "scheduleSource", is_flexible AS "isFlexible"
       `))
       const driverNotifications = await Promise.all(events.filter((event) => event.helperEmail).map(notifyAssignedDriver))
       return response.status(201).json({ events: savedRows.flat(), driverEmailSent: driverNotifications.length ? driverNotifications.every(Boolean) : null })
@@ -1009,8 +1042,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (type === 'food') {
         const dateKey = date.replaceAll('-', '')
         const weekday = new Date(`${date}T12:00:00Z`).getUTCDay()
-        if (![0, 1, 3].includes(weekday)) return sendError(response, 400, 'Food drop-offs are available on Sundays, Mondays, and Wednesdays.')
-        if (time < '14:00' || endTime > '18:00') return sendError(response, 400, 'Choose a food drop-off time between 2 PM and 6 PM.')
+        const settingRows = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime" FROM food_settings WHERE singleton = TRUE`
+        const allowedDays = String(settingRows[0]?.weekdays || '1,3').split(',').map(Number)
+        const foodStart = String(settingRows[0]?.startTime || '14:00')
+        const foodEnd = String(settingRows[0]?.endTime || '18:00')
+        if (!allowedDays.includes(weekday)) return sendError(response, 400, 'Please choose one of the family’s available food drop-off days.')
+        if (time < foodStart || endTime > foodEnd) return sendError(response, 400, `Choose a food drop-off time between ${readableTime(foodStart)} and ${readableTime(foodEnd)}.`)
         const reserved = await sql`SELECT id FROM team_events WHERE proposal_type = 'food' AND SUBSTRING(event_date, 1, 8) = ${dateKey} AND (is_proposed = FALSE OR EXISTS (SELECT 1 FROM support_requests WHERE event_id = team_events.id AND status = 'pending')) LIMIT 1`
         if (reserved.length) return sendError(response, 409, 'Someone is already bringing food that day. Please choose another open date.')
         const conflicts = await sql`
