@@ -289,7 +289,6 @@ function App() {
   const [visitSettings, setVisitSettings] = useState<VisitSettings>({ startTime: '10:00', endTime: '17:00' })
   const [familyInTown, setFamilyInTown] = useState<FamilyInTown>({ Stu: true, Gabby: true, Spencer: false })
   const [familyInTownDates, setFamilyInTownDates] = useState<FamilyInTownDates>({ Stu: [], Gabby: [], Spencer: [] })
-  const [upcomingLimit, setUpcomingLimit] = useState(7)
   const [foodReservedDates, setFoodReservedDates] = useState<string[]>([])
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const calculatedHelpNeeded = buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates)
@@ -626,9 +625,9 @@ function App() {
         <section className="schedule" aria-labelledby="schedule-title">
           <div className="section-heading">
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
-            <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => { setUpcomingLimit(7); setView('upcoming') }}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
+            <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
-          <p className="schedule-view-note">{view === 'help' ? 'Only open rides, appointments, and times when Mary may be alone.' : view === 'upcoming' ? 'This week, Sunday through Saturday. Choose Show More to see later dates.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
+          <p className="schedule-view-note">{view === 'help' ? 'Only open rides, appointments, and times when Mary may be alone.' : view === 'upcoming' ? 'The next 10 days, starting today.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
           {view === 'help' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
             {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
           </div>}
@@ -645,7 +644,7 @@ function App() {
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly />}
-          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingWeekList events={publicScheduleEvents} daysToShow={upcomingLimit} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} />{upcomingLimit < 28 && <button className="secondary-button show-more-button" type="button" onClick={() => setUpcomingLimit((current) => Math.min(28, current + 7))}>Show more dates</button>}</div> : <MonthCalendar events={publicScheduleEvents} helpNeededEvents={calculatedHelpNeeded} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} />)}
+          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} /></div> : <MonthCalendar events={publicScheduleEvents} helpNeededEvents={calculatedHelpNeeded} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} />)}
         </section>
         {organizer && <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>
@@ -691,14 +690,12 @@ function EmptySchedule({ onAdd, supportOnly = false }: { onAdd: () => void; supp
   return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No open support is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'This is good news. Check This Month to see the full family schedule.' : 'Mary or Stu can add the first appointment or task.'}</p>{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
 }
 
-function UpcomingWeekList({ events, daysToShow, onOpen }: { events: TeamEvent[]; daysToShow: number; onOpen: (event: TeamEvent) => void }) {
+function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[]; daysToShow: number; onOpen: (event: TeamEvent) => void }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const sunday = new Date(today)
-  sunday.setDate(today.getDate() - today.getDay())
   const days = Array.from({ length: daysToShow }, (_, index) => {
-    const date = new Date(sunday)
-    date.setDate(sunday.getDate() + index)
+    const date = new Date(today)
+    date.setDate(today.getDate() + index)
     const dateKey = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
     return {
       date,
