@@ -103,7 +103,7 @@ function eventDisplayTitle(event: TeamEvent) {
 
 function eventDisplayDetails(event: TeamEvent) {
   if (event.helpNeeded === 'Spend time with Mary' && needsTimeWithMary(event.forWho)) {
-    return event.details || `${event.forWho} is working or away.`
+    return event.details || `${event.forWho} is working.`
   }
   return event.details
 }
@@ -195,7 +195,7 @@ function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, 
         time,
         endTime,
         title: 'Spend time with Mary',
-        details: `${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} working or away.`,
+        details: `${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} working.`,
         forWho: names.length === 1 ? names[0] : 'Family',
         isCalculatedCoverage: true,
       })
