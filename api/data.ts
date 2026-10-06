@@ -43,6 +43,7 @@ type StuWorkDefaults = {
 type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
 type VisitSettings = { startTime: string; endTime: string }
 type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
+type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
 
 type SupportRequestNotification = {
   id: unknown
@@ -136,6 +137,9 @@ async function ensureSchema() {
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS stu_in_town BOOLEAN NOT NULL DEFAULT TRUE`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS gabby_in_town BOOLEAN NOT NULL DEFAULT TRUE`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS spencer_in_town BOOLEAN NOT NULL DEFAULT FALSE`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS stu_in_town_dates TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS gabby_in_town_dates TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS spencer_in_town_dates TEXT NOT NULL DEFAULT ''`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
   await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
@@ -705,7 +709,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         startTime: String(defaultRows[0].startTime),
         endTime: String(defaultRows[0].endTime),
       } : null
-      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown" FROM food_settings WHERE singleton = TRUE`
+      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates" FROM food_settings WHERE singleton = TRUE`
       const foodSettings: FoodSettings = foodRowsSettings.length ? {
         weekdays: String(foodRowsSettings[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
         startTime: String(foodRowsSettings[0].startTime),
@@ -713,7 +717,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
       } : { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' }
       const visitSettings: VisitSettings = { startTime: String(foodRowsSettings[0]?.visitStartTime || '10:00'), endTime: String(foodRowsSettings[0]?.visitEndTime || '17:00') }
       const familyInTown: FamilyInTown = { Stu: Boolean(foodRowsSettings[0]?.stuInTown ?? true), Gabby: Boolean(foodRowsSettings[0]?.gabbyInTown ?? true), Spencer: Boolean(foodRowsSettings[0]?.spencerInTown ?? false) }
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, foodReservedDates })
+      const parseDates = (value: unknown) => String(value || '').split(',').filter((date) => /^\d{8}$/.test(date))
+      const familyInTownDates: FamilyInTownDates = { Stu: parseDates(foodRowsSettings[0]?.stuInTownDates), Gabby: parseDates(foodRowsSettings[0]?.gabbyInTownDates), Spencer: parseDates(foodRowsSettings[0]?.spencerInTownDates) }
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, familyInTownDates, foodReservedDates })
     }
 
     if (request.method !== 'POST') {
@@ -914,6 +920,18 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (person === 'Gabby') await sql`UPDATE food_settings SET gabby_in_town = ${inTown}, updated_at = NOW() WHERE singleton = TRUE`
       if (person === 'Spencer') await sql`UPDATE food_settings SET spencer_in_town = ${inTown}, updated_at = NOW() WHERE singleton = TRUE`
       return response.status(200).json({ person, inTown })
+    }
+
+    if (action === 'saveFamilyInTownDates') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to update in-town dates.')
+      const person = clean(request.body?.person, 20)
+      const dates: string[] = Array.isArray(request.body?.dates) ? [...new Set<string>(request.body.dates.map((date: unknown) => clean(date, 8)).filter((date: string) => /^\d{8}$/.test(date)))].slice(0, 60) : []
+      if (!['Stu', 'Gabby', 'Spencer'].includes(person)) return sendError(response, 400, 'Choose Stu, Gabby, or Spencer.')
+      const value = dates.sort().join(',')
+      if (person === 'Stu') await sql`UPDATE food_settings SET stu_in_town_dates = ${value}, updated_at = NOW() WHERE singleton = TRUE`
+      if (person === 'Gabby') await sql`UPDATE food_settings SET gabby_in_town_dates = ${value}, updated_at = NOW() WHERE singleton = TRUE`
+      if (person === 'Spencer') await sql`UPDATE food_settings SET spencer_in_town_dates = ${value}, updated_at = NOW() WHERE singleton = TRUE`
+      return response.status(200).json({ person, dates })
     }
 
     if (action === 'saveFamilyBusyDates') {
