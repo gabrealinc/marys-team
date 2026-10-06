@@ -121,6 +121,7 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .claimed small,.requested small,.busy-status small { font-size:.76rem; }
 .edit-event-link { border:0; background:transparent; color:var(--pine); padding:7px; display:inline-flex; align-items:center; justify-content:center; gap:7px; font:inherit; font-size:.84rem; font-weight:750; }
 .edit-event-link svg { width:16px; }
+.upcoming-calendar-wrap { display:grid; gap:16px; }
 .week-calendar { background:#fff; border:1px solid var(--line); border-radius:18px; overflow:hidden; box-shadow:0 5px 18px rgba(36,59,49,.06); }
 .calendar-day { display:grid; grid-template-columns:105px 1fr; min-height:104px; border-bottom:1px solid #e2e9e3; }
 .calendar-day:last-child { border-bottom:0; }
