@@ -163,6 +163,7 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .month-statuses { width:100%; min-width:0; display:grid; gap:5px; }
 .month-status { min-width:0; padding:5px 6px; border-radius:6px; font-size:.7rem; font-weight:850; line-height:1.2; overflow-wrap:anywhere; }
 .month-status.help { background:#fbe9e7; color:#9b302c; }
+.month-status.open { background:#e7f3e9; color:#24603e; }
 .month-status.appointment { background:#e8f2e9; color:#285b44; }
 .month-status.food { background:#e6f1f8; color:#275f82; }
 .day-event-list { display:grid; gap:9px; }
