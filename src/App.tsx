@@ -231,21 +231,10 @@ function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEv
   ]
 
   for (const day of days) {
-    const blocks = [...events, ...helpNeededEvents.filter((event) => event.isCalculatedCoverage)]
-      .filter((event) => event.date.startsWith(day.dateKey) && !event.isFlexible && ((event.forWho === 'Mary' && !event.proposalType) || event.proposalType === 'stop_by' || event.isCalculatedCoverage))
-      .map((event) => ({ start: event.time, end: event.endTime }))
-      .filter((block) => block.end > visitSettings.startTime && block.start < visitSettings.endTime)
-      .sort((a, b) => a.start.localeCompare(b.start))
-    let cursor = visitSettings.startTime
-    const openWindows: { start: string; end: string }[] = []
-    for (const block of blocks) {
-      const blockStart = block.start < visitSettings.startTime ? visitSettings.startTime : block.start
-      const blockEnd = block.end > visitSettings.endTime ? visitSettings.endTime : block.end
-      if (blockStart > cursor) openWindows.push({ start: cursor, end: blockStart })
-      if (blockEnd > cursor) cursor = blockEnd
-    }
-    if (cursor < visitSettings.endTime) openWindows.push({ start: cursor, end: visitSettings.endTime })
-    for (const window of openWindows.flatMap((entry) => stopBySlots(entry.start, entry.end))) {
+    const dayHasPlans = events.some((event) => event.date.startsWith(day.dateKey))
+      || helpNeededEvents.some((event) => event.date.startsWith(day.dateKey))
+    if (dayHasPlans) continue
+    for (const window of stopBySlots(visitSettings.startTime, visitSettings.endTime)) {
       publicEvents.push({
         id: `open-${day.dateKey}-${window.start}-${window.end}`,
         category: 'company',
@@ -920,8 +909,8 @@ function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSett
   const foodTimeIsValid = type !== 'food' || (time >= foodSettings.startTime && endTime <= foodSettings.endTime)
   const foodSlotUnavailable = type === 'food' && (!foodDayAllowed || foodDateIsTaken || maryHasAppointmentThen || !foodTimeIsValid)
   const outsideVisitHours = type === 'stop_by' && (time < visitSettings.startTime || endTime > visitSettings.endTime)
-  const stopByConflict = type === 'stop_by' && events.some((item) => !item.isFlexible && item.date.slice(0, 8) === compactDate && item.time < endTime && item.endTime > time && (item.forWho === 'Mary' || item.proposalType === 'stop_by'))
-  const maryBusyThatDay = events.filter((item) => !item.isFlexible && item.date.slice(0, 8) === compactDate && (item.forWho === 'Mary' || item.proposalType === 'stop_by')).sort((a, b) => a.time.localeCompare(b.time))
+  const stopByDayUnavailable = type === 'stop_by' && events.some((item) => item.date.slice(0, 8) === compactDate)
+  const maryBusyThatDay = events.filter((item) => item.date.slice(0, 8) === compactDate).sort((a, b) => a.time.localeCompare(b.time))
   const foodDayNames = foodSettings.weekdays.map((day) => weekdayChoices.find((choice) => choice.value === day)?.label).filter(Boolean).join(' or ')
   const foodCalendarDays = getThirtyDays()
   const foodCalendarBlanks = new Date(`${foodCalendarDays[0].dateKey.slice(0, 4)}-${foodCalendarDays[0].dateKey.slice(4, 6)}-${foodCalendarDays[0].dateKey.slice(6, 8)}T12:00:00`).getDay()
@@ -934,7 +923,7 @@ function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSett
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (saving || !timeIsValid || foodSlotUnavailable || stopByConflict) return
+    if (saving || !timeIsValid || foodSlotUnavailable || stopByDayUnavailable) return
     setSaving(true)
     const foodDetails = type === 'food' ? `${details.trim() || 'Food drop-off'} · ${dropOffPlace}` : details.trim()
     const saved = await onSave({ type, name: name.trim(), phone: phone.trim(), email: email.trim(), date, time, endTime, details: foodDetails })
@@ -951,12 +940,12 @@ function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSett
       <div className="field-row"><div><label htmlFor="plan-time">{type === 'food' ? 'Drop off around' : 'Arrive'}</label><input id="plan-time" type="time" value={time} onChange={(event) => changeStartTime(event.target.value)} required /></div><div><label htmlFor="plan-end-time">{type === 'food' ? 'Until' : 'Leave'}</label><input id="plan-end-time" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
       {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
       {outsideVisitHours && <p className="outside-hours-note" role="status"><strong>Outside normal visiting hours.</strong> You can still send this request for the family to approve.</p>}
-      {type === 'stop_by' && maryBusyThatDay.length > 0 && <div className={`meal-week-status ${stopByConflict ? 'covered' : ''}`} role="status"><Clock3 aria-hidden="true" /><p><strong>{stopByConflict ? 'That time is already busy. Please choose another time.' : 'Mary is open during the time you chose.'}</strong><br />Already scheduled that day: {maryBusyThatDay.map((item) => eventTimeRangeLabel(item)).join(', ')}.</p></div>}
+      {type === 'stop_by' && maryBusyThatDay.length > 0 && <div className="meal-week-status covered" role="status"><Clock3 aria-hidden="true" /><p><strong>That day is not open for drop-ins.</strong><br />Stop By requests are available only on completely open days. Please choose another date.</p></div>}
       {type === 'stop_by' && <p className="form-note"><strong>A quiet visit is welcome.</strong> Mary may need to nap while you are there. It is completely fine to sit with her quietly while she rests.</p>}
       {type === 'food' && <><label htmlFor="drop-off-place">Where will you leave the food?</label><select id="drop-off-place" value={dropOffPlace} onChange={(event) => setDropOffPlace(event.target.value)}><option>Front door</option><option>Back gate by the garage</option><option>I would like to come inside and say hi</option></select><p className="form-note">For a quick drop-off, text the family when you arrive so someone can bring it inside. To visit, choose the last option so the family knows.</p></>}
       <label htmlFor="plan-details">{type === 'food' ? 'What are you bringing? ' : 'Anything Mary and Stu should know? '}<span>(optional)</span></label><textarea id="plan-details" value={details} onChange={(event) => setDetails(event.target.value)} placeholder={type === 'food' ? 'Example: Chicken soup and bread' : 'Example: I can keep Mary company and help with small things around the house.'} />
       <p className="form-note privacy-note">This request stays private until Mary or Stu approves it. We will email you after they decide.</p>
-      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid || foodSlotUnavailable || stopByConflict}><Check aria-hidden="true" /> {saving ? 'Sending request…' : 'Send request'}</button></div>
+      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid || foodSlotUnavailable || stopByDayUnavailable}><Check aria-hidden="true" /> {saving ? 'Sending request…' : 'Send request'}</button></div>
     </form>
   </ModalShell>
 }

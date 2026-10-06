@@ -1146,13 +1146,18 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (type === 'stop_by') {
         const dateKey = date.replaceAll('-', '')
         const conflicts = await sql`
-          SELECT id FROM team_events
+          SELECT team_events.id FROM team_events
           WHERE SUBSTRING(event_date, 1, 8) = ${dateKey}
-            AND is_flexible = FALSE AND event_time < ${endTime} AND end_time > ${time}
-            AND ((for_who = 'Mary' AND proposal_type IS NULL) OR proposal_type = 'stop_by')
+            AND (
+              is_proposed = FALSE
+              OR EXISTS (
+                SELECT 1 FROM support_requests
+                WHERE support_requests.event_id = team_events.id AND support_requests.status = 'pending'
+              )
+            )
           LIMIT 1
         `
-        if (conflicts.length) return sendError(response, 409, 'Mary is already busy during that time. Please choose another time.')
+        if (conflicts.length) return sendError(response, 409, 'That day already has something scheduled. Stop By requests are available only on completely open days.')
       }
 
       const eventId = randomUUID()
