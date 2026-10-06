@@ -313,8 +313,11 @@ function App() {
   const [foodReservedDates, setFoodReservedDates] = useState<string[]>([])
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const calculatedHelpNeeded = buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates)
-  const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, calculatedHelpNeeded, visitSettings)
-  const visibleEvents = (view === 'help' ? calculatedHelpNeeded : teamEvents)
+  const calculatedHelpIds = new Set(calculatedHelpNeeded.map((event) => event.id))
+  const supportCommitments = teamEvents.filter((event) => (event.helper || event.requestPending) && !event.proposalType && !isNoSupport(event.helpNeeded) && !calculatedHelpIds.has(event.id))
+  const supportFeedEvents = [...calculatedHelpNeeded, ...supportCommitments]
+  const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents, visitSettings)
+  const visibleEvents = (view === 'help' ? supportFeedEvents : teamEvents)
     .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || matchesSupportFilter(event, filter)))
     .sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
@@ -665,7 +668,7 @@ function App() {
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly />}
-          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} /></div> : <MonthCalendar events={publicScheduleEvents} helpNeededEvents={calculatedHelpNeeded} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} />)}
+          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} /></div> : <MonthCalendar events={publicScheduleEvents} helpNeededEvents={supportFeedEvents} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} />)}
         </section>
         {organizer && <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>

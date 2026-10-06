@@ -658,8 +658,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const events = await sql`
         SELECT team_events.id,
           CASE WHEN category = 'dad' THEN 'family' ELSE category END AS category,
-          event_date AS date, day_label AS "dayLabel", event_time AS time,
-          end_time AS "endTime", title, details, location,
+          event_date AS date, day_label AS "dayLabel", COALESCE(pending.request_start_time, event_time) AS time,
+          COALESCE(pending.request_end_time, end_time) AS "endTime", title, details, location,
           CASE WHEN help_needed = 'No help needed, just sharing the schedule' THEN 'No help needed' ELSE help_needed END AS "helpNeeded",
           helper, helper_phone AS "helperPhone", helper_email AS "helperEmail", repeat_group_id AS "repeatGroupId",
           schedule_source AS "scheduleSource", is_schedule_exception AS "isScheduleException",
@@ -669,7 +669,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           (pending.id IS NOT NULL) AS "requestPending"
         FROM team_events
         LEFT JOIN LATERAL (
-          SELECT id, requester_name
+          SELECT id, requester_name, request_start_time, request_end_time
           FROM support_requests
           WHERE event_id = team_events.id AND status = 'pending'
           ORDER BY created_at ASC
