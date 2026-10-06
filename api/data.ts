@@ -770,8 +770,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     if (action === 'saveStuWorkHours') {
       if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change Stu’s work hours.')
-      const rawWeekdays = Array.isArray(request.body?.weekdays) ? request.body.weekdays : []
-      const weekdays = [...new Set(rawWeekdays.map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6))].sort()
+      const rawWeekdays: unknown[] = Array.isArray(request.body?.weekdays) ? request.body.weekdays : []
+      const weekdays: number[] = [...new Set(
+        rawWeekdays
+          .map((value: unknown) => Number(value))
+          .filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6),
+      )].sort((a, b) => a - b)
       const startTime = clean(request.body?.startTime, 20)
       const endTime = clean(request.body?.endTime, 20)
       if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= startTime) {
