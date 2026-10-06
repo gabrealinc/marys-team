@@ -919,7 +919,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     if (action === 'saveFamilyBusyDates') {
       if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to update work or away days.')
       const person = clean(request.body?.person, 20)
-      const dates = Array.isArray(request.body?.dates) ? [...new Set(request.body.dates.map((date: unknown) => clean(date, 8)).filter((date: string) => /^\d{8}$/.test(date)))].slice(0, 60) : []
+      const dates: string[] = Array.isArray(request.body?.dates) ? [...new Set<string>(request.body.dates.map((date: unknown) => clean(date, 8)).filter((date: string) => /^\d{8}$/.test(date)))].slice(0, 60) : []
       const startTime = clean(request.body?.startTime, 5)
       const endTime = clean(request.body?.endTime, 5)
       const rangeStart = clean(request.body?.rangeStart, 8)
