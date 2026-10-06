@@ -1146,6 +1146,17 @@ export default async function handler(request: VercelRequest, response: VercelRe
         `
         if (conflicts.length) return sendError(response, 409, 'Mary has an appointment during that time. Please choose another time or date.')
       }
+      if (type === 'stop_by') {
+        const dateKey = date.replaceAll('-', '')
+        const conflicts = await sql`
+          SELECT id FROM team_events
+          WHERE SUBSTRING(event_date, 1, 8) = ${dateKey}
+            AND is_flexible = FALSE AND event_time < ${endTime} AND end_time > ${time}
+            AND ((for_who = 'Mary' AND proposal_type IS NULL) OR proposal_type = 'stop_by')
+          LIMIT 1
+        `
+        if (conflicts.length) return sendError(response, 409, 'Mary is already busy during that time. Please choose another time.')
+      }
 
       const eventId = randomUUID()
       const requestId = randomUUID()
