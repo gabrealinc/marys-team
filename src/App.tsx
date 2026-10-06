@@ -69,13 +69,6 @@ function matchesSupportFilter(event: TeamEvent, filter: SupportFilter) {
   return support.includes('coco') || support.includes('pet')
 }
 
-function helpNeededPriority(event: TeamEvent) {
-  const support = event.helpNeeded.toLocaleLowerCase()
-  if (support.includes('ride') || support.includes('driv')) return 0
-  const isRoutineWorkCoverage = (support.includes('mary') || support.includes('visit') || support.includes('check-in')) && (event.scheduleSource === 'stu_work' || event.title.trim().toLocaleLowerCase() === 'stu at work')
-  return isRoutineWorkCoverage ? 2 : 1
-}
-
 function availabilityTimeLabel(value: string) {
   const range = value.match(/^(\d{2}:\d{2})-(\d{2}:\d{2})$/)
   if (range) return `${eventTimeLabel(range[1])} – ${eventTimeLabel(range[2])}`
@@ -185,14 +178,39 @@ function nextFoodDate(weekdays = [1, 3]) {
   return localDateInputValue(date)
 }
 
-function isCoveredByFamily(event: TeamEvent, events: TeamEvent[], familyInTown: FamilyInTown, familyInTownDates: FamilyInTownDates) {
-  const support = event.helpNeeded.toLocaleLowerCase()
-  if (!(support.includes('mary') || support.includes('check-in') || support.includes('visit'))) return false
-  const dateKey = event.date.slice(0, 8)
-  return (Object.keys(familyInTown) as (keyof FamilyInTown)[]).some((person) => {
-    if (!familyInTown[person] && !familyInTownDates[person].includes(dateKey)) return false
-    return !events.some((busy) => busy.forWho === person && busy.scheduleSource !== 'family_coverage' && !busy.proposalType && !busy.isFlexible && busy.date.slice(0, 8) === dateKey && (event.isFlexible || (busy.time < event.endTime && busy.endTime > event.time)))
-  })
+function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, familyInTownDates: FamilyInTownDates) {
+  const caregiverNames = Object.keys(familyInTown) as (keyof FamilyInTown)[]
+  const caregiverBusy = events.filter((event) => caregiverNames.includes(event.forWho as keyof FamilyInTown) && event.helpNeeded === 'Spend time with Mary' && !event.proposalType && !event.isFlexible)
+  const directNeeds = events.filter((event) => event.scheduleSource !== 'family_coverage' && (!caregiverNames.includes(event.forWho as keyof FamilyInTown) || event.helpNeeded !== 'Spend time with Mary') && !isNoSupport(event.helpNeeded))
+  const dateKeys = [...new Set(caregiverBusy.map((event) => event.date.slice(0, 8)))]
+  const uncovered: TeamEvent[] = []
+
+  for (const dateKey of dateKeys) {
+    const present = caregiverNames.filter((person) => familyInTown[person] || familyInTownDates[person].includes(dateKey))
+    if (!present.length) continue
+    const dayBusy = caregiverBusy.filter((event) => event.date.startsWith(dateKey) && present.includes(event.forWho as keyof FamilyInTown))
+    const boundaries = [...new Set(dayBusy.flatMap((event) => [event.time, event.endTime]))].sort()
+    for (let index = 0; index < boundaries.length - 1; index += 1) {
+      const time = boundaries[index]
+      const endTime = boundaries[index + 1]
+      const coveringEvents = dayBusy.filter((event) => event.time <= time && event.endTime >= endTime)
+      if (!present.every((person) => coveringEvents.some((event) => event.forWho === person))) continue
+      if (coveringEvents.some((event) => event.helper)) continue
+      const representative = coveringEvents.find((event) => event.requestPending) || coveringEvents[0]
+      const names = present.filter((person) => coveringEvents.some((event) => event.forWho === person))
+      uncovered.push({
+        ...representative,
+        date: `${dateKey}T${time.replace(':', '')}00`,
+        time,
+        endTime,
+        title: 'Spend time with Mary',
+        details: `${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} working or away.`,
+        forWho: names.length === 1 ? names[0] : 'Family',
+      })
+    }
+  }
+
+  return [...directNeeds, ...uncovered]
 }
 
 async function apiRequest(body?: unknown) {
@@ -238,9 +256,10 @@ function App() {
   const [upcomingLimit, setUpcomingLimit] = useState(7)
   const [foodReservedDates, setFoodReservedDates] = useState<string[]>([])
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
-  const visibleEvents = teamEvents
-    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || (!isNoSupport(event.helpNeeded) && !event.helper && !isCoveredByFamily(event, teamEvents, familyInTown, familyInTownDates) && matchesSupportFilter(event, filter))))
-    .sort((a, b) => view === 'help' ? helpNeededPriority(a) - helpNeededPriority(b) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date))
+  const calculatedHelpNeeded = buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates)
+  const visibleEvents = (view === 'help' ? calculatedHelpNeeded : teamEvents)
+    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || (!event.helper && matchesSupportFilter(event, filter))))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
   const allAvailabilityDates = new Set(availabilityDays.map((day) => day.dateKey))
@@ -585,7 +604,7 @@ function App() {
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly />}
-          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingWeekList events={teamEvents.filter((event) => event.scheduleSource !== 'family_coverage')} daysToShow={upcomingLimit} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />{upcomingLimit < 28 && <button className="secondary-button show-more-button" type="button" onClick={() => setUpcomingLimit((current) => Math.min(28, current + 7))}>Show more dates</button>}</div> : <MonthCalendar events={teamEvents.filter((event) => event.scheduleSource !== 'family_coverage')} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
+          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingWeekList events={teamEvents.filter((event) => event.scheduleSource !== 'family_coverage')} daysToShow={upcomingLimit} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />{upcomingLimit < 28 && <button className="secondary-button show-more-button" type="button" onClick={() => setUpcomingLimit((current) => Math.min(28, current + 7))}>Show more dates</button>}</div> : <MonthCalendar events={teamEvents.filter((event) => event.scheduleSource !== 'family_coverage')} helpNeededEvents={calculatedHelpNeeded} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
         </section>
         {organizer && <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>
@@ -669,7 +688,7 @@ function UpcomingWeekList({ events, daysToShow, onOpen }: { events: TeamEvent[];
   </div>
 }
 
-function MonthCalendar({ events, familyInTown, familyInTownDates, onOpen }: { events: TeamEvent[]; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onOpen: (eventId: string) => void }) {
+function MonthCalendar({ events, helpNeededEvents, onOpen }: { events: TeamEvent[]; helpNeededEvents: TeamEvent[]; onOpen: (eventId: string) => void }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const [monthDate, setMonthDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
@@ -702,7 +721,7 @@ function MonthCalendar({ events, familyInTown, familyInTownDates, onOpen }: { ev
       <div className="month-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="month-grid">{days.map((day) => {
         const label = day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-        const openHelp = day.events.some((event) => !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending && !isCoveredByFamily(event, events, familyInTown, familyInTownDates))
+        const openHelp = helpNeededEvents.some((event) => event.date.startsWith(day.dateKey) && !event.helper && !event.requestPending)
         const appointmentCount = day.events.filter((event) => !event.proposalType && isNoSupport(event.helpNeeded)).length
         const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
         return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no plans'}`}>
