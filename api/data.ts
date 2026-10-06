@@ -48,6 +48,7 @@ type SupportRequestNotification = {
   endTime: unknown
   helpNeeded: unknown
   details?: unknown
+  location?: unknown
   proposalType?: unknown
   isFlexible?: unknown
   requestStartTime?: unknown
@@ -405,6 +406,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const approved = decision === 'approve'
       const proposalType = String(supportRequest.proposalType || '')
       const isPlan = proposalType === 'food' || proposalType === 'stop_by'
+      const savedLocation = String(supportRequest.location || '')
+      const approvedLocation = savedLocation.toLocaleLowerCase() === 'home'
+        ? String(process.env.HOME_ADDRESS || 'Mary and Stu’s home')
+        : savedLocation
       return notifyOnce(`decision:${String(supportRequest.id)}:${decision}`, {
         subject: `Mary's Team: your request was ${approved ? 'approved' : 'not confirmed'}`,
         heading: approved ? 'You are confirmed' : 'Your request was not confirmed',
@@ -414,6 +419,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         rows: [
           { label: 'Schedule item', value: String(supportRequest.title) },
           { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.requestStartTime || supportRequest.time))} to ${readableTime(String(supportRequest.requestEndTime || supportRequest.endTime))}` },
+          ...(approved && approvedLocation ? [{ label: 'Where', value: approvedLocation }] : []),
           ...(isPlan ? [{ label: 'Details', value: String(supportRequest.details || 'No additional details.') }] : [{ label: 'Support requested', value: String(supportRequest.helpNeeded) }]),
           ...(!approved && declineReason ? [{ label: 'Reason', value: declineReason }] : []),
           { label: 'Mary', value: 'mary@hcttravel.com' },
@@ -589,7 +595,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           'BEGIN:VEVENT', `UID:${calendarText(event.id)}@marys-team`, ...timing,
           `SUMMARY:${calendarText(event.title)}`,
           `DESCRIPTION:${calendarText(`${String(event.details)} Support: ${String(event.helpNeeded)}`)}`,
-          `LOCATION:${calendarText(event.location || 'Mary and Stu’s home')}`,
+          `LOCATION:${calendarText(String(event.location || '').toLocaleLowerCase() === 'home' ? process.env.HOME_ADDRESS || 'Mary and Stu’s home' : event.location || '')}`,
           'END:VEVENT', 'END:VCALENDAR', '',
         ].join('\r\n')
         response.setHeader('Content-Type', 'text/calendar; charset=utf-8')
@@ -633,7 +639,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ))
       `
       const foodReservedDates = foodRows.map((row) => String(row.date))
-      const publicEvents = events.map((event) => isOrganizer ? event : { ...event, requesterName: undefined, helperPhone: undefined, helperEmail: undefined })
+      const homeAddress = String(process.env.HOME_ADDRESS || '').trim().toLocaleLowerCase()
+      const publicEvents = events.map((event) => isOrganizer ? event : {
+        ...event,
+        location: String(event.location || '').trim().toLocaleLowerCase() === 'home' || (homeAddress && String(event.location || '').trim().toLocaleLowerCase() === homeAddress) ? 'Home' : event.location,
+        requesterName: undefined,
+        helperPhone: undefined,
+        helperEmail: undefined,
+      })
       const publicAvailability = availability.map(({ ownerKeyHash, ...entry }) => ({
         ...entry,
         editable: isOrganizer || !ownerKeyHash || ownerKeyHash === helperOwner,
@@ -701,7 +714,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           support_requests.request_start_time AS "requestStartTime", support_requests.request_end_time AS "requestEndTime", support_requests.request_note AS "requestNote",
           support_requests.notification_sent_at AS "notificationSentAt", team_events.title,
           team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details, team_events.location,
           team_events.proposal_type AS "proposalType", team_events.is_flexible AS "isFlexible"
         FROM support_requests
         JOIN team_events ON team_events.id = support_requests.event_id
@@ -723,7 +736,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           support_requests.requester_phone AS "requesterPhone", support_requests.requester_email AS "requesterEmail",
           support_requests.request_start_time AS "requestStartTime", support_requests.request_end_time AS "requestEndTime", support_requests.request_note AS "requestNote",
           team_events.title, team_events.event_date AS date, team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details, team_events.location,
           team_events.proposal_type AS "proposalType", team_events.is_flexible AS "isFlexible"
         FROM support_requests JOIN team_events ON team_events.id = support_requests.event_id
         WHERE support_requests.id = ${requestId} AND support_requests.status = 'pending'
@@ -885,7 +898,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           support_requests.requester_phone AS "requesterPhone", support_requests.requester_email AS "requesterEmail",
           support_requests.request_start_time AS "requestStartTime", support_requests.request_end_time AS "requestEndTime", support_requests.request_note AS "requestNote", team_events.title,
           team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details, team_events.location,
           team_events.proposal_type AS "proposalType", team_events.is_flexible AS "isFlexible"
         FROM support_requests
         JOIN team_events ON team_events.id = support_requests.event_id
@@ -906,7 +919,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           support_requests.requester_phone AS "requesterPhone", support_requests.requester_email AS "requesterEmail",
           support_requests.request_start_time AS "requestStartTime", support_requests.request_end_time AS "requestEndTime", support_requests.request_note AS "requestNote",
           team_events.title, team_events.event_date AS date, team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details, team_events.location,
           team_events.proposal_type AS "proposalType", team_events.is_flexible AS "isFlexible"
         FROM support_requests JOIN team_events ON team_events.id = support_requests.event_id
         WHERE support_requests.approval_token = ${token} AND support_requests.status = 'pending'
@@ -932,7 +945,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           support_requests.requester_email AS "requesterEmail",
           support_requests.request_start_time AS "requestStartTime", support_requests.request_end_time AS "requestEndTime", support_requests.request_note AS "requestNote",
           team_events.title, team_events.day_label AS "dayLabel", team_events.event_time AS time,
-          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details,
+          team_events.end_time AS "endTime", team_events.help_needed AS "helpNeeded", team_events.details, team_events.location,
           team_events.proposal_type AS "proposalType", team_events.is_flexible AS "isFlexible"
         FROM support_requests
         JOIN team_events ON team_events.id = support_requests.event_id
