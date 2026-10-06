@@ -214,8 +214,8 @@ function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEv
   ]
 
   for (const day of days) {
-    const blocks = events
-      .filter((event) => event.date.startsWith(day.dateKey) && !event.isFlexible && ((event.forWho === 'Mary' && !event.proposalType) || event.proposalType === 'stop_by'))
+    const blocks = [...events, ...helpNeededEvents.filter((event) => event.isCalculatedCoverage)]
+      .filter((event) => event.date.startsWith(day.dateKey) && !event.isFlexible && ((event.forWho === 'Mary' && !event.proposalType) || event.proposalType === 'stop_by' || event.isCalculatedCoverage))
       .map((event) => ({ start: event.time, end: event.endTime }))
       .filter((block) => block.end > visitSettings.startTime && block.start < visitSettings.endTime)
       .sort((a, b) => a.start.localeCompare(b.start))
