@@ -10,6 +10,7 @@ type ForWho = 'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'Coco' | 'Family'
 type PlanType = 'food' | 'stop_by'
 type SupportFilter = 'all' | 'ride' | 'mary' | 'home' | 'coco'
 type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; helperPhone?: string; helperEmail?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string; scheduleSource?: string; isScheduleException?: boolean; isFlexible?: boolean; proposalType?: PlanType }
+type DriverContact = { name: string; phone: string; email: string }
 type Availability = { id: string; name: string; phone: string; day: string; time: string; note: string; editable?: boolean }
 type ApprovalRequest = { status: string; requesterName: string; requesterPhone: string; requesterEmail: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
 type PendingRequest = { id: string; eventId: string; requesterName: string; requesterPhone: string; requesterEmail: string; notificationSentAt?: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
@@ -138,6 +139,18 @@ function availabilityMatchesTime(slot: string, eventTime: string, eventEndTime?:
 function matchingAvailability(event: TeamEvent, availability: Availability[]) {
   if (isNoSupport(event.helpNeeded)) return []
   return availability.filter((entry) => event.isFlexible || (entry.day === event.date.slice(0, 8) && availabilityMatchesTime(entry.time, event.time, event.endTime)))
+}
+
+function availableDriverContacts(date: string, time: string, endTime: string, availability: Availability[], events: TeamEvent[]) {
+  const dateKey = date.replaceAll('-', '').slice(0, 8)
+  const pastContacts = events.filter((event) => event.helper).map((event) => ({ name: event.helper || '', phone: event.helperPhone || '', email: event.helperEmail || '' }))
+  const contacts = availability
+    .filter((entry) => entry.day === dateKey && availabilityMatchesTime(entry.time, time, endTime))
+    .map((entry) => {
+      const prior = pastContacts.find((contact) => phoneKey(contact.phone) && phoneKey(contact.phone) === phoneKey(entry.phone)) || pastContacts.find((contact) => contact.name.trim().toLocaleLowerCase() === entry.name.trim().toLocaleLowerCase())
+      return { name: entry.name, phone: entry.phone, email: prior?.email || '' }
+    })
+  return contacts.filter((contact, index) => contacts.findIndex((item) => phoneKey(item.phone) ? phoneKey(item.phone) === phoneKey(contact.phone) : item.name.toLocaleLowerCase() === contact.name.toLocaleLowerCase()) === index)
 }
 
 function phoneKey(value: string) {
@@ -384,7 +397,7 @@ function App() {
         return [...events.filter((event) => !savedIds.has(event.id)), ...savedEvents].sort((a, b) => a.date.localeCompare(b.date))
       })
       setShowAdd(false)
-      setMessage(eventsToSave.length === 1 ? 'The new item was added to the shared schedule.' : `${eventsToSave.length} weekly items were added to the shared schedule.`)
+      setMessage(`${eventsToSave.length === 1 ? 'The new item was added to the shared schedule.' : `${eventsToSave.length} weekly items were added to the shared schedule.`}${result.driverEmailSent === true ? ' The driver was emailed a confirmation.' : result.driverEmailSent === false ? ' The driver was saved, but the confirmation email could not be sent.' : ''}`)
       window.setTimeout(() => setMessage(''), 5000)
       return true
     } catch (error) {
@@ -394,10 +407,10 @@ function App() {
   }
   async function updateEvent(event: TeamEvent) {
     try {
-      await apiRequest({ action: 'updateEvent', event })
-      setTeamEvents((events) => events.map((item) => item.id === event.id ? { ...event, isScheduleException: event.scheduleSource === 'stu_work' ? true : event.isScheduleException, helper: isNoSupport(event.helpNeeded) ? undefined : item.helper, requestPending: isNoSupport(event.helpNeeded) ? false : item.requestPending, requesterName: isNoSupport(event.helpNeeded) ? undefined : item.requesterName } : item).sort((a, b) => a.date.localeCompare(b.date)))
+      const result = await apiRequest({ action: 'updateEvent', event })
+      setTeamEvents((events) => events.map((item) => item.id === event.id ? { ...item, ...result.event, isScheduleException: event.scheduleSource === 'stu_work' ? true : event.isScheduleException, requestPending: isNoSupport(event.helpNeeded) || Boolean(result.event?.helper) ? false : item.requestPending, requesterName: isNoSupport(event.helpNeeded) || Boolean(result.event?.helper) ? undefined : item.requesterName } : item).sort((a, b) => a.date.localeCompare(b.date)))
       setEditingEvent(null)
-      setMessage('The schedule item was updated.')
+      setMessage(`The schedule item was updated.${result.driverEmailSent === true ? ' The driver was emailed a confirmation.' : result.driverEmailSent === false ? ' The driver was saved, but the confirmation email could not be sent.' : ''}`)
       window.setTimeout(() => setMessage(''), 5000)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'We could not update this item. Please try again.')
@@ -501,11 +514,11 @@ function App() {
       {message && <div className="toast" role="status"><Check aria-hidden="true" /> {message}</div>}
       {signupEvent && <SignupModal event={signupEvent} onClose={() => setSignupEvent(null)} onSave={saveHelper} />}
       {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} />}
-      {editingEvent && <EditEventModal event={editingEvent} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
+      {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
       {showPlanRequest && <PlanRequestModal type={showPlanRequest} events={teamEvents} foodReservedDates={foodReservedDates} onClose={() => setShowPlanRequest(null)} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => (phoneKey(editingAvailability.phone) ? phoneKey(entry.phone) === phoneKey(editingAvailability.phone) : entry.name.trim().toLocaleLowerCase() === editingAvailability.name.trim().toLocaleLowerCase()) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
-      {showAdd && <AddEventModal initialForWho={addForWho} onClose={() => setShowAdd(false)} onSave={saveEvents} />}
+      {showAdd && <AddEventModal initialForWho={addForWho} availability={availability} events={teamEvents} onClose={() => setShowAdd(false)} onSave={saveEvents} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {approvalRequest && <ApprovalModal request={approvalRequest} onClose={() => setApprovalRequest(null)} onDecide={decideApprovalRequest} />}
       {showOrganizerLogin && <OrganizerLoginModal onClose={() => setShowOrganizerLogin(false)} onLogin={organizerLogin} />}
@@ -919,8 +932,28 @@ function compactEventDate(date: string, time: string) {
   return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
 }
 
-function AddEventModal({ initialForWho, onClose, onSave }: { initialForWho: ForWho; onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
-  const [form, setForm] = useState(() => ({ title: initialForWho === 'Mary' ? 'At Home Appointment' : '', date: localDateInputValue(), time: '12:00', endTime: '13:00', forWho: initialForWho, helpNeeded: initialForWho === 'Mary' ? 'No help needed' : needsTimeWithMary(initialForWho) ? 'Spend time with Mary' : 'Need a ride', details: '', locationChoice: initialForWho === 'Mary' ? 'home' : 'location', location: '', isFlexible: false }))
+function DriverFields({ contacts, driver, onChange }: { contacts: DriverContact[]; driver: DriverContact; onChange: (driver: DriverContact) => void }) {
+  const currentContact = contacts.findIndex((contact) => contact.name === driver.name && phoneKey(contact.phone) === phoneKey(driver.phone))
+  const [choice, setChoice] = useState(driver.name ? currentContact >= 0 ? `contact:${currentContact}` : 'manual' : 'open')
+  function choose(value: string) {
+    setChoice(value)
+    if (value === 'open') onChange({ name: '', phone: '', email: '' })
+    else if (value.startsWith('contact:')) onChange(contacts[Number(value.split(':')[1])] || { name: '', phone: '', email: '' })
+    else onChange({ name: '', phone: '', email: '' })
+  }
+  return <div className="driver-fields">
+    <label htmlFor="ride-driver">Who is driving?</label>
+    <select id="ride-driver" value={choice} onChange={(event) => choose(event.target.value)}>
+      <option value="open">Still need a driver</option>
+      {contacts.map((contact, index) => <option value={`contact:${index}`} key={`${contact.name}-${contact.phone}`}>{contact.name} · available then</option>)}
+      <option value="manual">Someone else has agreed</option>
+    </select>
+    {choice !== 'open' && <><div className="field-row"><div><label htmlFor="driver-name">Driver’s name</label><input id="driver-name" required value={driver.name} onChange={(event) => onChange({ ...driver, name: event.target.value })} /></div><div><label htmlFor="driver-phone">Phone number</label><input id="driver-phone" type="tel" required value={driver.phone} onChange={(event) => onChange({ ...driver, phone: event.target.value })} autoComplete="tel" /></div></div><label htmlFor="driver-email">Email address</label><input id="driver-email" type="email" required value={driver.email} onChange={(event) => onChange({ ...driver, email: event.target.value })} autoComplete="email" placeholder="Needed to send confirmation" /><p className="form-note">This person will receive a confirmation email with the appointment details and destination.</p></>}
+  </div>
+}
+
+function AddEventModal({ initialForWho, availability, events, onClose, onSave }: { initialForWho: ForWho; availability: Availability[]; events: TeamEvent[]; onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
+  const [form, setForm] = useState(() => ({ title: initialForWho === 'Mary' ? 'At Home Appointment' : '', date: localDateInputValue(), time: '12:00', endTime: '13:00', forWho: initialForWho, helpNeeded: initialForWho === 'Mary' ? 'No help needed' : needsTimeWithMary(initialForWho) ? 'Spend time with Mary' : 'Need a ride', details: '', locationChoice: initialForWho === 'Mary' ? 'home' : 'location', location: '', helper: '', helperPhone: '', helperEmail: '', isFlexible: false }))
   const [repeats, setRepeats] = useState(false)
   const [saving, setSaving] = useState(false)
   const [repeatThrough, setRepeatThrough] = useState(() => {
@@ -946,7 +979,7 @@ function AddEventModal({ initialForWho, onClose, onSave }: { initialForWho: ForW
       cursor.setDate(cursor.getDate() + 7)
     }
     const repeatGroupId = repeats ? crypto.randomUUID() : undefined
-    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, title: form.title, details: form.details.trim() || defaultEventDetails, location: form.locationChoice === 'home' ? 'Home' : form.location || undefined, helpNeeded: form.helpNeeded, repeatGroupId: form.isFlexible ? undefined : repeatGroupId, isFlexible: form.isFlexible }))
+    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, title: form.title, details: form.details.trim() || defaultEventDetails, location: form.locationChoice === 'home' ? 'Home' : form.location || undefined, helpNeeded: form.helpNeeded, helper: form.helpNeeded === 'Need a ride' ? form.helper || undefined : undefined, helperPhone: form.helpNeeded === 'Need a ride' ? form.helperPhone || undefined : undefined, helperEmail: form.helpNeeded === 'Need a ride' ? form.helperEmail || undefined : undefined, repeatGroupId: form.isFlexible ? undefined : repeatGroupId, isFlexible: form.isFlexible }))
     setSaving(true)
     const saved = await onSave(events)
     if (!saved) setSaving(false)
@@ -961,6 +994,7 @@ function AddEventModal({ initialForWho, onClose, onSave }: { initialForWho: ForW
     {!form.isFlexible && <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={(event) => setRepeats(event.target.checked)} /><span><Repeat2 aria-hidden="true" /><strong>Repeat every week</strong><small>Add this on the same weekday each week.</small></span></label>}
     {!form.isFlexible && repeats && <><label htmlFor="repeat-through">Repeat through</label><input id="repeat-through" type="date" min={form.date} value={repeatThrough < form.date ? form.date : repeatThrough} onChange={(event) => setRepeatThrough(event.target.value)} /></>}
     <label htmlFor="event-help">What support is needed?</label><select id="event-help" value={form.helpNeeded} onChange={(event) => setForm({ ...form, helpNeeded: event.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
+    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={availableDriverContacts(form.date, form.time, form.endTime, availability, events)} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
     <label htmlFor="event-location-choice">Where?</label><select id="event-location-choice" value={form.locationChoice} onChange={(event) => { const locationChoice = event.target.value; setForm({ ...form, locationChoice, title: form.forWho === 'Mary' ? locationChoice === 'home' ? 'At Home Appointment' : 'Appointment' : form.title, helpNeeded: form.forWho === 'Mary' ? locationChoice === 'home' ? 'No help needed' : 'Need a ride' : form.helpNeeded }) }}><option value="home">Home</option><option value="location">Location</option></select>
     {form.locationChoice === 'location' && <><label htmlFor="event-location">Location name or address</label><input id="event-location" required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Example: Mayo Clinic, 13400 E Shea Blvd" /></>}
     <label htmlFor="event-details">Details {form.forWho !== 'Mary' && <span>(optional)</span>}</label><textarea id="event-details" required={form.forWho === 'Mary'} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder={form.forWho === 'Mary' ? 'Example: Stretch with Cara' : defaultEventDetails} />
@@ -968,19 +1002,19 @@ function AddEventModal({ initialForWho, onClose, onSave }: { initialForWho: ForW
   </form></ModalShell>
 }
 
-function EditEventModal({ event, onClose, onSave, onRemove }: { event: TeamEvent; onClose: () => void; onSave: (event: TeamEvent) => void; onRemove: (eventId: string) => void }) {
+function EditEventModal({ event, availability, events, onClose, onSave, onRemove }: { event: TeamEvent; availability: Availability[]; events: TeamEvent[]; onClose: () => void; onSave: (event: TeamEvent) => void; onRemove: (eventId: string) => void }) {
   const date = `${event.date.slice(0, 4)}-${event.date.slice(4, 6)}-${event.date.slice(6, 8)}`
   const isMaryAppointment = event.forWho === 'Mary' && event.category === 'appointment'
   const originalTitleIsStandard = maryAppointmentChoices.includes(event.title)
   const startsAtHome = event.location?.trim().toLocaleLowerCase() === 'home' || event.title.toLocaleLowerCase().includes('at home')
-  const [form, setForm] = useState({ ...event, title: isMaryAppointment ? startsAtHome ? 'At Home Appointment' : 'Appointment' : event.title, details: isMaryAppointment && !originalTitleIsStandard && event.details === defaultEventDetails ? event.title : event.details, locationChoice: startsAtHome ? 'home' : 'location', location: startsAtHome ? '' : event.location || '', date, endTime: event.endTime || addHour(event.time), helpNeeded: isNoSupport(event.helpNeeded) ? 'No help needed' : event.helpNeeded })
+  const [form, setForm] = useState({ ...event, title: isMaryAppointment ? startsAtHome ? 'At Home Appointment' : 'Appointment' : event.title, details: isMaryAppointment && !originalTitleIsStandard && event.details === defaultEventDetails ? event.title : event.details, locationChoice: startsAtHome ? 'home' : 'location', location: startsAtHome ? '' : event.location || '', helper: event.helper || '', helperPhone: event.helperPhone || '', helperEmail: event.helperEmail || '', date, endTime: event.endTime || addHour(event.time), helpNeeded: isNoSupport(event.helpNeeded) ? 'No help needed' : event.helpNeeded })
   const [confirmRemove, setConfirmRemove] = useState(false)
   const timeIsValid = form.isFlexible || form.endTime > form.time
 
   function submit(submitEvent: React.FormEvent) {
     submitEvent.preventDefault()
     if (!timeIsValid) return
-    onSave({ ...event, ...form, category: form.forWho === 'Mary' ? 'appointment' : 'family', date: compactEventDate(form.date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(form.date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, details: form.details.trim() || defaultEventDetails, location: form.locationChoice === 'home' ? 'Home' : form.location || undefined })
+    onSave({ ...event, ...form, category: form.forWho === 'Mary' ? 'appointment' : 'family', date: compactEventDate(form.date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(form.date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, details: form.details.trim() || defaultEventDetails, location: form.locationChoice === 'home' ? 'Home' : form.location || undefined, helper: form.helpNeeded === 'Need a ride' ? form.helper || undefined : undefined, helperPhone: form.helpNeeded === 'Need a ride' ? form.helperPhone || undefined : undefined, helperEmail: form.helpNeeded === 'Need a ride' ? form.helperEmail || undefined : undefined })
   }
 
   return <ModalShell title="View or edit schedule" onClose={onClose}><p className="modal-intro">Click any box below to make a change.{event.repeatGroupId || event.scheduleSource === 'stu_work' ? ' This changes this date only.' : ''}</p><form onSubmit={submit}>
@@ -990,6 +1024,7 @@ function EditEventModal({ event, onClose, onSave, onRemove }: { event: TeamEvent
     {!form.isFlexible && <div className="field-row"><div><label htmlFor="edit-event-time">Starts</label><input id="edit-event-time" type="time" required value={form.time} onChange={(changeEvent) => setForm({ ...form, time: changeEvent.target.value, endTime: addHour(changeEvent.target.value) })} /></div><div><label htmlFor="edit-event-end-time">Ends</label><input id="edit-event-end-time" type="time" required value={form.endTime} onChange={(changeEvent) => setForm({ ...form, endTime: changeEvent.target.value })} /></div></div>}
     {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
     <label htmlFor="edit-event-help">What support is needed?</label><select id="edit-event-help" value={form.helpNeeded} onChange={(changeEvent) => setForm({ ...form, helpNeeded: changeEvent.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
+    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={availableDriverContacts(form.date, form.time, form.endTime, availability, events)} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
     <label htmlFor="edit-event-location-choice">Where?</label><select id="edit-event-location-choice" value={form.locationChoice} onChange={(changeEvent) => { const locationChoice = changeEvent.target.value; setForm({ ...form, locationChoice, title: form.forWho === 'Mary' && event.category === 'appointment' ? locationChoice === 'home' ? 'At Home Appointment' : 'Appointment' : form.title }) }}><option value="home">Home</option><option value="location">Location</option></select>
     {form.locationChoice === 'location' && <><label htmlFor="edit-event-location">Location name or address</label><input id="edit-event-location" required value={form.location || ''} onChange={(changeEvent) => setForm({ ...form, location: changeEvent.target.value })} /></>}
     <label htmlFor="edit-event-details">Details {!(form.forWho === 'Mary' && event.category === 'appointment') && <span>(optional)</span>}</label><textarea id="edit-event-details" required={form.forWho === 'Mary' && event.category === 'appointment'} value={form.details} onChange={(changeEvent) => setForm({ ...form, details: changeEvent.target.value })} placeholder={form.forWho === 'Mary' && event.category === 'appointment' ? 'Example: Stretch with Cara' : defaultEventDetails} />

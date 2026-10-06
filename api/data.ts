@@ -16,6 +16,9 @@ type TeamEventInput = {
   details: string
   location?: string
   helpNeeded: string
+  helper?: string
+  helperPhone?: string
+  helperEmail?: string
   forWho: string
   repeatGroupId?: string
   isFlexible?: boolean
@@ -237,6 +240,9 @@ function parseEventInput(item: Partial<TeamEventInput> | undefined) {
     details: clean(item?.details, 1000) || defaultEventDetails,
     location: clean(item?.location, 300),
     helpNeeded: clean(item?.helpNeeded, 200),
+    helper: clean(item?.helper, 120),
+    helperPhone: clean(item?.helperPhone, 50),
+    helperEmail: clean(item?.helperEmail, 200).toLocaleLowerCase(),
     forWho,
     repeatGroupId: clean(item?.repeatGroupId, 80),
     isFlexible: Boolean(item?.isFlexible),
@@ -245,7 +251,8 @@ function parseEventInput(item: Partial<TeamEventInput> | undefined) {
 
 function eventIsValid(event: ReturnType<typeof parseEventInput>) {
   const validTime = event.isFlexible ? event.time === 'anytime' && event.endTime === 'anytime' : event.endTime > event.time
-  return Boolean(event.id && event.date && event.dayLabel && event.time && event.endTime && event.title && event.helpNeeded && ['Mary', 'Stu', 'Coco', 'Family'].includes(event.forWho) && ['appointment', 'company', 'home', 'family', 'dad'].includes(event.category) && validTime)
+  const validDriver = !event.helper || Boolean(event.helperPhone && /^\S+@\S+\.\S+$/.test(event.helperEmail))
+  return Boolean(event.id && event.date && event.dayLabel && event.time && event.endTime && event.title && event.helpNeeded && ['Mary', 'Stu', 'Gabby', 'Spencer', 'Coco', 'Family'].includes(event.forWho) && ['appointment', 'company', 'home', 'family', 'dad'].includes(event.category) && validTime && validDriver)
 }
 
 function timeMatchesAvailability(slot: string, eventTime: string, eventEndTime?: string) {
@@ -428,6 +435,28 @@ export default async function handler(request: VercelRequest, response: VercelRe
         actionUrl: approved ? `https://marys-team.vercel.app/api/data?calendar=${encodeURIComponent(String(supportRequest.eventId))}` : 'https://marys-team.vercel.app',
         actionLabel: approved ? 'Add to my calendar' : "Open Mary's Team",
       }, [email])
+    }
+
+    async function notifyAssignedDriver(event: ReturnType<typeof parseEventInput>) {
+      if (!event.helper || !event.helperEmail) return false
+      const destination = event.location.toLocaleLowerCase() === 'home'
+        ? String(process.env.HOME_ADDRESS || 'Mary and Stu’s home')
+        : event.location
+      return notifyOnce(`driver:${event.id}:${event.helperEmail}`, {
+        subject: `Mary's Team: you are confirmed to drive for ${event.title}`,
+        heading: 'You are confirmed as the driver',
+        intro: `Thank you, ${event.helper}. The family has added you as the confirmed driver for this appointment.`,
+        rows: [
+          { label: 'Appointment', value: event.title },
+          { label: 'Details', value: event.details },
+          { label: 'When', value: `${event.dayLabel} from ${readableTime(event.time)} to ${readableTime(event.endTime)}` },
+          ...(destination ? [{ label: 'Where', value: destination }] : []),
+          { label: 'Mary', value: 'mary@hcttravel.com' },
+          { label: 'Stu', value: 'ancalaeyes@aol.com' },
+        ],
+        actionUrl: `https://marys-team.vercel.app/api/data?calendar=${encodeURIComponent(event.id)}`,
+        actionLabel: 'Add to my calendar',
+      }, [event.helperEmail])
     }
 
     async function approveSupportRequest(supportRequest: Record<string, unknown>) {
@@ -833,38 +862,42 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const events = items.map((item) => parseEventInput(item as Partial<TeamEventInput> | undefined))
       if (!events.length || events.some((event) => !eventIsValid(event))) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
       const savedRows = await Promise.all(events.map((event) => sql`
-        INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, repeat_group_id, for_who, is_flexible)
-        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.repeatGroupId || null}, ${event.forWho}, ${event.isFlexible})
+        INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, location, help_needed, helper, helper_phone, helper_email, repeat_group_id, for_who, is_flexible)
+        VALUES (${event.id}, ${event.category}, ${event.date}, ${event.dayLabel}, ${event.time}, ${event.endTime}, ${event.title}, ${event.details}, ${event.location || null}, ${event.helpNeeded}, ${event.helper || null}, ${event.helperPhone || null}, ${event.helperEmail || null}, ${event.repeatGroupId || null}, ${event.forWho}, ${event.isFlexible})
         ON CONFLICT (id) DO UPDATE SET
           category = EXCLUDED.category, event_date = EXCLUDED.event_date, day_label = EXCLUDED.day_label,
           event_time = EXCLUDED.event_time, end_time = EXCLUDED.end_time, title = EXCLUDED.title,
           details = EXCLUDED.details, location = EXCLUDED.location, help_needed = EXCLUDED.help_needed,
+          helper = EXCLUDED.helper, helper_phone = EXCLUDED.helper_phone, helper_email = EXCLUDED.helper_email,
           repeat_group_id = EXCLUDED.repeat_group_id, for_who = EXCLUDED.for_who, is_flexible = EXCLUDED.is_flexible
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
           event_time AS time, end_time AS "endTime", title, details, location,
-          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho", is_flexible AS "isFlexible"
+          help_needed AS "helpNeeded", helper, helper_phone AS "helperPhone", helper_email AS "helperEmail",
+          repeat_group_id AS "repeatGroupId", for_who AS "forWho", is_flexible AS "isFlexible"
       `))
-      return response.status(201).json({ events: savedRows.flat() })
+      const driverNotifications = await Promise.all(events.filter((event) => event.helperEmail).map(notifyAssignedDriver))
+      return response.status(201).json({ events: savedRows.flat(), driverEmailSent: driverNotifications.length ? driverNotifications.every(Boolean) : null })
     }
 
     if (action === 'updateEvent') {
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const event = parseEventInput(request.body?.event as Partial<TeamEventInput> | undefined)
       if (!eventIsValid(event)) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
-      const previousRows = await sql`SELECT event_date AS date, schedule_source AS "scheduleSource" FROM team_events WHERE id = ${event.id}`
+      const previousRows = await sql`SELECT event_date AS date, schedule_source AS "scheduleSource", helper_email AS "helperEmail" FROM team_events WHERE id = ${event.id}`
       const previous = previousRows[0]
       const rows = await sql`
         UPDATE team_events
         SET category = ${event.category}, event_date = ${event.date}, day_label = ${event.dayLabel},
           event_time = ${event.time}, end_time = ${event.endTime}, title = ${event.title},
           details = ${event.details}, location = ${event.location || null}, help_needed = ${event.helpNeeded}, for_who = ${event.forWho}, is_flexible = ${event.isFlexible},
-          helper = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper END,
-          helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE helper_phone END,
+          helper = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL WHEN ${event.helpNeeded === 'Need a ride'} THEN ${event.helper || null} ELSE helper END,
+          helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL WHEN ${event.helpNeeded === 'Need a ride'} THEN ${event.helperPhone || null} ELSE helper_phone END,
+          helper_email = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL WHEN ${event.helpNeeded === 'Need a ride'} THEN ${event.helperEmail || null} ELSE helper_email END,
           is_schedule_exception = CASE WHEN schedule_source = 'stu_work' THEN TRUE ELSE is_schedule_exception END
         WHERE id = ${event.id}
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
           event_time AS time, end_time AS "endTime", title, details, location,
-          help_needed AS "helpNeeded", helper, repeat_group_id AS "repeatGroupId", for_who AS "forWho",
+          help_needed AS "helpNeeded", helper, helper_phone AS "helperPhone", helper_email AS "helperEmail", repeat_group_id AS "repeatGroupId", for_who AS "forWho",
           schedule_source AS "scheduleSource", is_schedule_exception AS "isScheduleException", is_flexible AS "isFlexible"
       `
       if (!rows.length) return sendError(response, 404, 'This schedule item could not be found.')
@@ -875,7 +908,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
         if (updatedDate !== originalDate) await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${updatedDate}) ON CONFLICT DO NOTHING`
       }
       if (isNoSupport(event.helpNeeded)) await sql`UPDATE support_requests SET status = 'declined', decided_at = NOW() WHERE event_id = ${event.id} AND status = 'pending'`
-      return response.status(200).json({ event: rows[0] })
+      if (event.helper) await sql`UPDATE support_requests SET status = 'declined', decided_at = NOW() WHERE event_id = ${event.id} AND status = 'pending'`
+      const shouldNotifyDriver = Boolean(event.helperEmail) && String(previous?.helperEmail || '').toLocaleLowerCase() !== event.helperEmail
+      const driverEmailSent = shouldNotifyDriver ? await notifyAssignedDriver(event) : null
+      return response.status(200).json({ event: rows[0], driverEmailSent })
     }
 
     if (action === 'deleteEvent') {
