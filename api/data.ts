@@ -675,7 +675,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           ORDER BY created_at ASC
           LIMIT 1
         ) pending ON TRUE
-        WHERE is_proposed = FALSE
+        WHERE is_proposed = FALSE OR pending.id IS NOT NULL
         ORDER BY event_date ASC, team_events.created_at ASC
       `
       const availability = await sql`
@@ -695,7 +695,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const publicEvents = events.map((event) => isOrganizer ? event : {
         ...event,
         location: String(event.location || '').trim().toLocaleLowerCase() === 'home' || (homeAddress && String(event.location || '').trim().toLocaleLowerCase() === homeAddress) ? 'Home' : event.location,
-        requesterName: undefined,
         helperPhone: undefined,
         helperEmail: undefined,
       })

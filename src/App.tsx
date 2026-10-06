@@ -9,6 +9,7 @@ type Category = 'appointment' | 'company' | 'home' | 'family'
 type ForWho = 'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'Coco' | 'Family'
 type PlanType = 'food' | 'stop_by'
 type SupportFilter = 'all' | 'ride' | 'mary' | 'home' | 'coco'
+type SupportStatusFilter = 'all' | 'open' | 'requested' | 'confirmed'
 type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; helperPhone?: string; helperEmail?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string; scheduleSource?: string; isScheduleException?: boolean; isFlexible?: boolean; proposalType?: PlanType; isCalculatedCoverage?: boolean; publicAction?: PlanType }
 type DriverContact = { name: string; phone: string; email: string }
 type Availability = { id: string; name: string; phone: string; day: string; time: string; note: string; editable?: boolean }
@@ -58,6 +59,13 @@ function matchesSupportFilter(event: TeamEvent, filter: SupportFilter) {
   if (filter === 'mary') return support.includes('mary') || support.includes('visit') || support.includes('check-in')
   if (filter === 'home') return support.includes('home') || support.includes('errand') || support.includes('meal')
   return support.includes('coco') || support.includes('pet')
+}
+
+function matchesSupportStatus(event: TeamEvent, filter: SupportStatusFilter) {
+  if (filter === 'all') return true
+  if (filter === 'confirmed') return Boolean(event.helper)
+  if (filter === 'requested') return !event.helper && Boolean(event.requestPending)
+  return !event.helper && !event.requestPending
 }
 
 function availabilityTimeLabel(value: string) {
@@ -283,6 +291,7 @@ async function apiRequest(body?: unknown) {
 function App() {
   const [teamEvents, setTeamEvents] = useState<TeamEvent[]>([])
   const [filter, setFilter] = useState<SupportFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<SupportStatusFilter>('all')
   const [view, setView] = useState<'help' | 'upcoming' | 'month'>('help')
   const [availabilityView, setAvailabilityView] = useState<'upcoming' | 'month'>('upcoming')
   const [availability, setAvailability] = useState<Availability[]>([])
@@ -316,9 +325,11 @@ function App() {
   const calculatedHelpIds = new Set(calculatedHelpNeeded.map((event) => event.id))
   const supportCommitments = teamEvents.filter((event) => (event.helper || event.requestPending) && !event.proposalType && !isNoSupport(event.helpNeeded) && !calculatedHelpIds.has(event.id))
   const supportFeedEvents = [...calculatedHelpNeeded, ...supportCommitments]
+  const planCommitments = teamEvents.filter((event) => event.proposalType && (event.helper || event.requestPending))
+  const helpFeedEvents = [...supportFeedEvents, ...planCommitments]
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents, visitSettings)
-  const visibleEvents = (view === 'help' ? supportFeedEvents : teamEvents)
-    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || matchesSupportFilter(event, filter)))
+  const visibleEvents = (view === 'help' ? helpFeedEvents : teamEvents)
+    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || (matchesSupportFilter(event, filter) && matchesSupportStatus(event, statusFilter))))
     .sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
@@ -609,6 +620,7 @@ function App() {
   function showSupportNeeded() {
     setView('help')
     setFilter('all')
+    setStatusFilter('all')
     window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
   function openPlanRequest(type: PlanType, window: TeamEvent | null = null) {
@@ -654,6 +666,9 @@ function App() {
           <p className="schedule-view-note">{view === 'help' ? 'See what is open, requested, or confirmed and who is signed up.' : view === 'upcoming' ? 'The next 10 days, starting today.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
           {view === 'help' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
             {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
+          </div>}
+          {view === 'help' && <div className="status-filters" role="group" aria-label="Show sign-ups by status">
+            {([['all', 'All'], ['open', 'Open'], ['requested', 'Requested'], ['confirmed', 'Confirmed']] as const).map(([value, label]) => <button key={value} aria-pressed={statusFilter === value} className={statusFilter === value ? 'active' : ''} type="button" onClick={() => setStatusFilter(value)}>{label}</button>)}
           </div>}
           {!loading && (view === 'help' ? <div className="event-list">
             {visibleEvents.length ? visibleEvents.map((event) => {

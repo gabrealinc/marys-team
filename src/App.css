@@ -66,6 +66,9 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .filters button { border:1px solid var(--line); background:#fff; color:var(--ink); border-radius:999px; padding:11px 16px; font-weight:750; }
 .filters button:hover { border-color:var(--fern); }
 .filters button.active { background:var(--pine); color:#fff; border-color:var(--pine); }
+.status-filters { margin-top:10px; display:flex; gap:7px; flex-wrap:wrap; }
+.status-filters button { min-height:42px; border:1px solid var(--line); border-radius:999px; padding:8px 15px; background:#fff; color:var(--ink); font-weight:800; }
+.status-filters button.active { border-color:var(--pine); background:var(--pine); color:#fff; }
 .support-filter-note { margin:0 0 16px; padding:12px 15px; border:1px solid #b7ceb9; border-radius:12px; background:#eef7f0; display:flex; align-items:center; justify-content:space-between; gap:15px; color:var(--pine-dark); font-weight:750; }
 .support-filter-note button { border:0; background:transparent; color:var(--pine); text-decoration:underline; text-underline-offset:3px; font:inherit; font-weight:850; }
 .event-list { display:grid; gap:15px; margin-top:18px; }
@@ -422,6 +425,9 @@ textarea { min-height:95px; resize:vertical; }
   .schedule { padding-top:36px; }
   .section-heading h2 { font-size:2rem; }
   .filters { display:none; }
+  .status-filters { flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; scrollbar-width:none; }
+  .status-filters::-webkit-scrollbar { display:none; }
+  .status-filters button { flex:0 0 auto; }
   .event-card { grid-template-columns:1fr; }
   .event-card.has-response { grid-template-columns:1fr; min-height:0; }
   .event-date { border-right:0; border-bottom:1px solid #e2e9e3; }
