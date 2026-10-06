@@ -9,7 +9,7 @@ type Category = 'appointment' | 'company' | 'home' | 'family'
 type ForWho = 'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'Coco' | 'Family'
 type PlanType = 'food' | 'stop_by'
 type SupportFilter = 'all' | 'ride' | 'mary' | 'home' | 'coco'
-type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; helperPhone?: string; helperEmail?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string; scheduleSource?: string; isScheduleException?: boolean; isFlexible?: boolean; proposalType?: PlanType }
+type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; helperPhone?: string; helperEmail?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string; scheduleSource?: string; isScheduleException?: boolean; isFlexible?: boolean; proposalType?: PlanType; isCalculatedCoverage?: boolean }
 type DriverContact = { name: string; phone: string; email: string }
 type Availability = { id: string; name: string; phone: string; day: string; time: string; note: string; editable?: boolean }
 type ApprovalRequest = { status: string; requesterName: string; requesterPhone: string; requesterEmail: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
@@ -206,6 +206,7 @@ function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, 
         title: 'Spend time with Mary',
         details: `${names.join(' and ')} ${names.length === 1 ? 'is' : 'are'} working or away.`,
         forWho: names.length === 1 ? names[0] : 'Family',
+        isCalculatedCoverage: true,
       })
     }
   }
@@ -756,7 +757,8 @@ function EventDetailsModal({ event, organizer, availability, onClose, onEdit }: 
       {!event.helper && event.requestPending && <div><small>Status</small><strong>Request submitted</strong></div>}
       {organizer && !event.helper && availability.length > 0 && <div><small>People who may be available</small><div className="compact-contact-list">{availability.slice(0, 8).map((entry) => <span key={entry.id}><strong>{entry.name}</strong><small>{event.isFlexible ? `${availabilityDayLabel(entry.day)}, ${availabilityTimeLabel(entry.time)}` : availabilityTimeLabel(entry.time)}</small><a href={`sms:${entry.phone}`}>Text {entry.phone}</a></span>)}</div></div>}
     </div>
-    <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
+    {event.isCalculatedCoverage && organizer && <p className="form-note">This time is calculated from the family schedules. Edit the individual family members’ work or away entries to change it.</p>}
+    <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && !event.isCalculatedCoverage && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
   </ModalShell>
 }
 function OrganizerPanel({ requests, events, foodSettings, visitSettings, familyInTown, familyInTownDates, onSaveFoodSettings, onSaveVisitSettings, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; foodSettings: FoodSettings; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
