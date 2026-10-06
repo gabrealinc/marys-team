@@ -464,17 +464,19 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     async function notifyAssignedDriver(event: ReturnType<typeof parseEventInput>) {
       if (!event.helper || !event.helperEmail) return false
+      const isRide = event.helpNeeded === 'Need a ride'
       const destination = event.location.toLocaleLowerCase() === 'home'
         ? String(process.env.HOME_ADDRESS || 'Mary and Stu’s home')
         : event.location
-      return notifyOnce(`driver:${event.id}:${event.helperEmail}`, {
-        subject: `Mary's Team: you are confirmed to drive for ${event.title}`,
-        heading: 'You are confirmed as the driver',
-        intro: `Thank you, ${event.helper}. The family has added you as the confirmed driver for this appointment.`,
+      return notifyOnce(`assignment:${event.id}:${event.helperEmail}`, {
+        subject: `Mary's Team: you are confirmed for ${event.title}`,
+        heading: isRide ? 'You are confirmed as the driver' : 'You are confirmed',
+        intro: isRide ? `Thank you, ${event.helper}. The family has added you as the confirmed driver for this appointment.` : `Thank you, ${event.helper}. The family has added you to the schedule.`,
         rows: [
-          { label: 'Appointment', value: event.title },
+          { label: isRide ? 'Appointment' : 'Schedule item', value: event.title },
           { label: 'Details', value: event.details },
           { label: 'When', value: `${event.dayLabel} from ${readableTime(event.time)} to ${readableTime(event.endTime)}` },
+          ...(!isRide ? [{ label: 'Support', value: event.helpNeeded }] : []),
           ...(destination ? [{ label: 'Where', value: destination }] : []),
           { label: 'Mary', value: 'mary@hcttravel.com' },
           { label: 'Stu', value: 'ancalaeyes@aol.com' },
