@@ -233,7 +233,23 @@ function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEv
   for (const day of days) {
     const dayHasPlans = events.some((event) => event.date.startsWith(day.dateKey))
       || helpNeededEvents.some((event) => event.date.startsWith(day.dateKey))
-    if (dayHasPlans) continue
+    if (dayHasPlans) {
+      if (!publicEvents.some((event) => event.date.startsWith(day.dateKey))) {
+        publicEvents.push({
+          id: `busy-${day.dateKey}`,
+          category: 'family',
+          forWho: 'Family',
+          date: `${day.dateKey}T${visitSettings.startTime.replace(':', '')}00`,
+          dayLabel: day.fullDay,
+          time: visitSettings.startTime,
+          endTime: visitSettings.endTime,
+          title: 'Busy today',
+          details: 'The family already has plans. This day is not open for drop-ins.',
+          helpNeeded: 'No help needed',
+        })
+      }
+      continue
+    }
     for (const window of stopBySlots(visitSettings.startTime, visitSettings.endTime)) {
       publicEvents.push({
         id: `open-${day.dateKey}-${window.start}-${window.end}`,
