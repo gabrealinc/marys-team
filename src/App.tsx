@@ -203,8 +203,7 @@ function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, 
       const endTime = boundaries[index + 1]
       const coveringEvents = dayBusy.filter((event) => event.time <= time && event.endTime >= endTime)
       if (!present.every((person) => coveringEvents.some((event) => event.forWho === person))) continue
-      if (coveringEvents.some((event) => event.helper)) continue
-      const representative = coveringEvents.find((event) => event.requestPending) || coveringEvents[0]
+      const representative = coveringEvents.find((event) => event.helper) || coveringEvents.find((event) => event.requestPending) || coveringEvents[0]
       const names = present.filter((person) => coveringEvents.some((event) => event.forWho === person))
       uncovered.push({
         ...representative,
@@ -225,7 +224,7 @@ function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, 
 function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEvent[], visitSettings: VisitSettings) {
   const days = getThirtyDays()
   const publicEvents: TeamEvent[] = [
-    ...helpNeededEvents.filter((event) => !event.helper),
+    ...helpNeededEvents,
     ...events.filter((event) => event.proposalType && (event.helper || event.requestPending)),
     ...events.filter((event) => event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && !event.isFlexible),
   ]
@@ -316,7 +315,7 @@ function App() {
   const calculatedHelpNeeded = buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates)
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, calculatedHelpNeeded, visitSettings)
   const visibleEvents = (view === 'help' ? calculatedHelpNeeded : teamEvents)
-    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || (!event.helper && matchesSupportFilter(event, filter))))
+    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || matchesSupportFilter(event, filter)))
     .sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
@@ -649,7 +648,7 @@ function App() {
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
             <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
-          <p className="schedule-view-note">{view === 'help' ? 'Only open rides, appointments, and times when Mary may be alone.' : view === 'upcoming' ? 'The next 10 days, starting today.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
+          <p className="schedule-view-note">{view === 'help' ? 'See what is open, requested, or confirmed and who is signed up.' : view === 'upcoming' ? 'The next 10 days, starting today.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
           {view === 'help' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
             {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
           </div>}
@@ -657,11 +656,11 @@ function App() {
             {visibleEvents.length ? visibleEvents.map((event) => {
               const helper = helpers[event.id] || event.helper
               const suggestedHelpers = matchingAvailability(event, availability)
-              return <article className={`event-card viewable ${event.category}`} id={`event-${event.id}`} key={event.id} onClick={() => setViewingEvent(event)}>
+              return <article className={`event-card viewable ${event.category} ${helper || event.requestPending ? 'has-response' : ''}`} id={`event-${event.id}`} key={event.id} onClick={() => setViewingEvent(event)}>
                 <div className="event-date"><p>{event.dayLabel}</p><strong><Clock3 aria-hidden="true" /> {eventTimeRangeLabel(event)}</strong>{(event.repeatGroupId || event.scheduleSource === 'stu_work') && <small className="repeat-label"><Repeat2 aria-hidden="true" /> {event.scheduleSource === 'stu_work' ? event.isScheduleException ? 'Different from weekly hours' : 'Weekly work hours' : 'Repeats weekly'}</small>}</div>
                 <div className="event-info"><h3>{eventDisplayTitle(event)}</h3><p>{eventDisplayDetails(event)}</p>{shouldShowEventLocation(event) && <p className="location">{event.location}</p>}<span className="card-details-hint">Tap to see details</span>{event.proposalType ? <div className="needed planned-needed">{event.proposalType === 'food' ? <Utensils aria-hidden="true" /> : <Users aria-hidden="true" />}<span><small>Planned</small><strong>{event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by'}</strong></span></div> : <div className={`needed ${isNoSupport(event.helpNeeded) ? 'busy-needed' : ''}`}><ListChecks aria-hidden="true" /><span><small>{isNoSupport(event.helpNeeded) ? 'Busy time' : 'Support requested'}</small><strong>{isNoSupport(event.helpNeeded) ? 'Please do not stop by during this time.' : event.helpNeeded}</strong></span></div>}{!helper && !event.requestPending && suggestedHelpers.length > 0 && !isNoSupport(event.helpNeeded) && <div className="suggested-help"><HeartHandshake aria-hidden="true" /><span><small>{event.isFlexible ? 'People who may be available' : 'People available then'}</small><strong>{suggestedHelpers.map((entry) => entry.name).join(', ')}</strong><em>{event.isFlexible ? 'They may be able to fit this task into their availability.' : 'They can choose this time if it works for them.'}</em></span></div>}</div>
                 <div className="event-actions">
-                  {event.proposalType && helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : isNoSupport(event.helpNeeded) ? <div className="busy-status"><Clock3 aria-hidden="true" /><span><small>Status</small><strong>Busy</strong></span></div> : helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : event.requestPending ? <div className="requested"><Clock3 aria-hidden="true" /><span><small>Request submitted</small><strong>{organizer && event.requesterName ? `Requested by ${event.requesterName}` : 'Waiting for confirmation'}</strong></span></div> : <button className="primary-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setSignupEvent(event) }}><HeartHandshake aria-hidden="true" /> Sign me up!</button>}
+                  {event.proposalType && helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : isNoSupport(event.helpNeeded) ? <div className="busy-status"><Clock3 aria-hidden="true" /><span><small>Status</small><strong>Busy</strong></span></div> : helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : event.requestPending ? <div className="requested"><Clock3 aria-hidden="true" /><span><small>Request submitted</small><strong>{event.requesterName ? `Requested by ${event.requesterName}` : 'Waiting for confirmation'}</strong></span></div> : <button className="primary-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setSignupEvent(event) }}><HeartHandshake aria-hidden="true" /> Sign me up!</button>}
                   <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setViewingEvent(event) }}><Pencil aria-hidden="true" /> {organizer ? 'View or edit details' : 'View details'}</button>
                 </div>
               </article>
@@ -720,11 +719,12 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
     date.setDate(today.getDate() + index)
     const dateKey = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
     const dayEvents = events.filter((event) => !event.isFlexible && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time))
-    const urgentEvents = dayEvents.filter((event) => !event.publicAction && !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper)
+    const supportEvents = dayEvents.filter((event) => !event.publicAction && !event.proposalType && !isNoSupport(event.helpNeeded))
+    const urgentEvents = supportEvents.filter((event) => !event.helper && !event.requestPending)
     return {
       date,
       dateKey,
-      events: urgentEvents.length ? urgentEvents : dayEvents,
+      events: urgentEvents.length ? supportEvents : dayEvents,
     }
   })
 
@@ -742,7 +742,7 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
             <strong>{eventDisplayTitle(event)}</strong>
             {eventDisplayTitle(event) !== event.title && <small>{eventDisplayDetails(event)}</small>}
             <small>{eventTimeRangeLabel(event)}</small>
-            <em>{event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : 'Stop-by request submitted' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? 'Request submitted' : event.helpNeeded}</em>
+            <em>{event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em>
           </span>
         </button>) : <p>No plans.</p>}
       </div>
@@ -794,7 +794,7 @@ function MonthCalendar({ events, helpNeededEvents, onOpen }: { events: TeamEvent
       })}</div>
     </div>
     {selectedDay && <ModalShell title={selectedDay.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} onClose={() => setSelectedDateKey('')}>
-      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{eventDisplayTitle(event)}</strong><small>{eventTimeRangeLabel(event)}</small><em>{event.publicAction === 'stop_by' ? 'Choose a time to stop by' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
+      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{eventDisplayTitle(event)}</strong><small>{eventTimeRangeLabel(event)}</small><em>{event.publicAction === 'stop_by' ? 'Choose a time to stop by' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
     </ModalShell>}
   </>
 }
@@ -815,7 +815,7 @@ function EventDetailsModal({ event, organizer, availability, onClose, onEdit }: 
       {shouldShowEventLocation(event) && <div><small>Where</small><strong>{event.location}</strong></div>}
       <div><small>Details</small><p>{eventDisplayDetails(event)}</p></div>
       {event.helper && <div><small>Confirmed</small><strong>{event.helper}</strong>{(event.helperEmail || event.helperPhone) && <span className="compact-contact">{event.helperEmail && <a href={`mailto:${event.helperEmail}`}>{event.helperEmail}</a>}{event.helperPhone && <a href={`tel:${event.helperPhone}`}>{event.helperPhone}</a>}</span>}</div>}
-      {!event.helper && event.requestPending && <div><small>Status</small><strong>Request submitted</strong></div>}
+      {!event.helper && event.requestPending && <div><small>Status</small><strong>{event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted'}</strong></div>}
       {organizer && !event.helper && availability.length > 0 && <div><small>People who may be available</small><div className="compact-contact-list">{availability.slice(0, 8).map((entry) => <span key={entry.id}><strong>{entry.name}</strong><small>{event.isFlexible ? `${availabilityDayLabel(entry.day)}, ${availabilityTimeLabel(entry.time)}` : availabilityTimeLabel(entry.time)}</small><a href={`sms:${entry.phone}`}>Text {entry.phone}</a></span>)}</div></div>}
     </div>
     {event.isCalculatedCoverage && organizer && <p className="form-note">This time is calculated from the family schedules. Edit the individual family members’ work or away entries to change it.</p>}

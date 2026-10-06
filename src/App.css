@@ -81,6 +81,11 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .event-card.home { border-left-color:#77966d; }
 .event-card.company { border-left-color:#659189; }
 .event-card.family { border-left-color:var(--gold); }
+.event-card.has-response { min-height:164px; grid-template-columns:210px minmax(0,1fr) 190px; }
+.event-card.has-response .event-date,.event-card.has-response .event-info,.event-card.has-response .event-actions { padding:18px 20px; }
+.event-card.has-response .event-date p { margin-top:12px; }
+.event-card.has-response .event-info h3 { font-size:1.3rem; margin-bottom:6px; }
+.event-card.has-response .needed { margin-top:10px; padding-top:10px; }
 .event-date,.event-info,.event-actions { padding:24px; }
 .event-date { background:#f8faf7; border-right:1px solid #e2e9e3; }
 .category-label { color:var(--fern); display:flex; align-items:center; gap:7px; font-size:.82rem; font-weight:850; text-transform:uppercase; letter-spacing:.04em; }
@@ -418,6 +423,7 @@ textarea { min-height:95px; resize:vertical; }
   .section-heading h2 { font-size:2rem; }
   .filters { display:none; }
   .event-card { grid-template-columns:1fr; }
+  .event-card.has-response { grid-template-columns:1fr; min-height:0; }
   .event-date { border-right:0; border-bottom:1px solid #e2e9e3; }
   .event-date p { margin-top:16px; }
   .event-info,.event-date { padding:20px; }
