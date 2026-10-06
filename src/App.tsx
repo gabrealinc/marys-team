@@ -321,6 +321,7 @@ function App() {
     setPendingRequests([])
     setStuWorkDefaults(null)
     setEditingEvent(null)
+    setView('help')
   }
 
   async function saveStuWorkHours(defaults: StuWorkDefaults) {
@@ -549,7 +550,6 @@ function App() {
           <button type="button" onClick={showSupportNeeded}><ListChecks aria-hidden="true" /><span>Help Needed</span></button>
           <button type="button" onClick={() => setShowPlanRequest('stop_by')}><Users aria-hidden="true" /><span>Stop By</span></button>
           <button type="button" onClick={() => setShowPlanRequest('food')}><Utensils aria-hidden="true" /><span>Bring Food</span></button>
-          <button type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /><span>Availability</span></button>
         </nav>
         <div className="header-tools"><button className="family-access-button" type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /><span>Edit &amp; Approve</span>{organizer && pendingRequests.length > 0 && <strong aria-label={`${pendingRequests.length} requests waiting`}>{pendingRequests.length}</strong>}</button><button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> <span>How to use this page</span></button></div>
       </header>
@@ -560,18 +560,16 @@ function App() {
             <button className="support-button" type="button" onClick={showSupportNeeded}><ListChecks aria-hidden="true" /> Help Needed</button>
             <button className="secondary-button" type="button" onClick={() => setShowPlanRequest('stop_by')}><Users aria-hidden="true" /> Stop By</button>
             <button className="secondary-button" type="button" onClick={() => setShowPlanRequest('food')}><Utensils aria-hidden="true" /> Bring Food</button>
-            <button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Availability</button>
-            {organizer && <button className="primary-button" type="button" onClick={() => { setAddForWho('Mary'); setShowAdd(true) }}>+ Add an appointment or task</button>}
           </div>
         </section>
-        <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Choose what works for you above. Availability means the family may call if something comes up. It does not sign you up for anything.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
+        <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Choose Help Needed, Stop By, or Bring Food. The page will show exactly what is open.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
         {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} stuWorkDefaults={stuWorkDefaults} foodSettings={foodSettings} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveStuWorkHours={saveStuWorkHours} onSaveFoodSettings={saveFoodSettings} onSaveVisitSettings={saveVisitSettings} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={setInTownDatesPerson} onEditBusyDates={setBusyPerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
           <div className="section-heading">
-            <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
-            <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => { setUpcomingLimit(8); setView('upcoming') }}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
+            <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">{organizer ? 'Schedule' : 'Help Needed'}</h2></div>
+            {organizer && <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => { setUpcomingLimit(8); setView('upcoming') }}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>}
           </div>
           <p className="schedule-view-note">{view === 'help' ? 'Only open rides, appointments, and times when Mary may be alone.' : view === 'upcoming' ? 'Everything coming up, in date order.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
           {view === 'help' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
@@ -593,11 +591,11 @@ function App() {
             }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly={view === 'help'} />}{view === 'upcoming' && visibleEvents.length > upcomingLimit && <button className="secondary-button show-more-button" type="button" onClick={() => setUpcomingLimit((current) => current + 8)}>Show more dates</button>}
           </div> : <MonthCalendar events={teamEvents.filter((event) => event.scheduleSource !== 'family_coverage')} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
         </section>
-        <section className="availability-section" aria-labelledby="availability-title">
+        {organizer && <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>
           <div className="availability-view-heading"><div className="view-toggle" role="group" aria-label="Choose availability view"><button aria-pressed={availabilityView === 'upcoming'} className={availabilityView === 'upcoming' ? 'active' : ''} type="button" onClick={() => setAvailabilityView('upcoming')}><ListChecks aria-hidden="true" /> Upcoming</button><button aria-pressed={availabilityView === 'month'} className={availabilityView === 'month' ? 'active' : ''} type="button" onClick={() => setAvailabilityView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div><p>{availabilityView === 'upcoming' ? 'The next 7 days' : 'The next 30 days'}</p></div>
           {!loading && <div className="availability-list">{visibleAvailability.length ? visibleAvailability.map((entry) => <article className={entry.editable ? 'editable' : ''} key={entry.id} onClick={() => entry.editable && setEditingAvailability(entry)}><div className="availability-date"><span>{availabilityDayLabel(entry.day).split(',')[0]}</span><strong>{availabilityDayLabel(entry.day).split(',').slice(1).join(',').trim()}</strong></div><div className="person-icon"><Users aria-hidden="true" /></div><div className="availability-person"><h3>{entry.name}</h3><p className={`availability-time ${entry.time === 'anytime' ? 'all-day' : ''}`}>{availabilityTimeLabel(entry.time)}</p><p className="availability-help">{entry.note}</p>{entry.phone && <a className="availability-phone" href={`tel:${entry.phone}`} onClick={(clickEvent) => clickEvent.stopPropagation()}><span>Call or text</span> {entry.phone}</a>}</div>{entry.editable && <button className="tap-edit" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setEditingAvailability(entry) }} aria-label={`Edit ${entry.name}’s availability for ${availabilityDayLabel(entry.day)}`}><Pencil aria-hidden="true" /> Edit</button>}</article>) : <div className="empty-availability"><Users aria-hidden="true" /><div><h3>No availability in {availabilityView === 'upcoming' ? 'the next 7 days' : 'the next 30 days'}</h3><p>Share times when the family may call if something comes up. This does not sign anyone up automatically.</p></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}>Add availability</button></div>}</div>}
-        </section>
+        </section>}
       </main>
       <footer><HeartHandshake aria-hidden="true" /><p><strong>Thank you for being part of Mary’s Team.</strong><br />Questions? Call or text the family coordinator.</p></footer>
       {message && <div className="toast" role="status"><Check aria-hidden="true" /> {message}</div>}
@@ -835,6 +833,8 @@ function PlanRequestModal({ type, events, foodSettings, visitSettings, foodReser
   const foodTimeIsValid = type !== 'food' || (time >= foodSettings.startTime && endTime <= foodSettings.endTime)
   const foodSlotUnavailable = type === 'food' && (!foodDayAllowed || foodDateIsTaken || maryHasAppointmentThen || !foodTimeIsValid)
   const outsideVisitHours = type === 'stop_by' && (time < visitSettings.startTime || endTime > visitSettings.endTime)
+  const stopByConflict = type === 'stop_by' && events.some((item) => !item.isFlexible && item.date.slice(0, 8) === compactDate && item.time < endTime && item.endTime > time && (item.forWho === 'Mary' || item.proposalType === 'stop_by'))
+  const maryBusyThatDay = events.filter((item) => !item.isFlexible && item.date.slice(0, 8) === compactDate && (item.forWho === 'Mary' || item.proposalType === 'stop_by')).sort((a, b) => a.time.localeCompare(b.time))
   const foodDayNames = foodSettings.weekdays.map((day) => weekdayChoices.find((choice) => choice.value === day)?.label).filter(Boolean).join(' or ')
   const foodCalendarDays = getThirtyDays()
   const foodCalendarBlanks = new Date(`${foodCalendarDays[0].dateKey.slice(0, 4)}-${foodCalendarDays[0].dateKey.slice(4, 6)}-${foodCalendarDays[0].dateKey.slice(6, 8)}T12:00:00`).getDay()
@@ -847,7 +847,7 @@ function PlanRequestModal({ type, events, foodSettings, visitSettings, foodReser
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    if (saving || !timeIsValid || foodSlotUnavailable) return
+    if (saving || !timeIsValid || foodSlotUnavailable || stopByConflict) return
     setSaving(true)
     const foodDetails = type === 'food' ? `${details.trim() || 'Food drop-off'} · ${dropOffPlace}` : details.trim()
     const saved = await onSave({ type, name: name.trim(), phone: phone.trim(), email: email.trim(), date, time, endTime, details: foodDetails })
@@ -864,10 +864,11 @@ function PlanRequestModal({ type, events, foodSettings, visitSettings, foodReser
       <div className="field-row"><div><label htmlFor="plan-time">{type === 'food' ? 'Drop off around' : 'Arrive'}</label><input id="plan-time" type="time" value={time} onChange={(event) => changeStartTime(event.target.value)} required /></div><div><label htmlFor="plan-end-time">{type === 'food' ? 'Until' : 'Leave'}</label><input id="plan-end-time" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
       {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
       {outsideVisitHours && <p className="outside-hours-note" role="status"><strong>Outside normal visiting hours.</strong> You can still send this request for the family to approve.</p>}
+      {type === 'stop_by' && maryBusyThatDay.length > 0 && <div className={`meal-week-status ${stopByConflict ? 'covered' : ''}`} role="status"><Clock3 aria-hidden="true" /><p><strong>{stopByConflict ? 'That time is already busy. Please choose another time.' : 'Mary is open during the time you chose.'}</strong><br />Already scheduled that day: {maryBusyThatDay.map((item) => eventTimeRangeLabel(item)).join(', ')}.</p></div>}
       {type === 'food' && <><label htmlFor="drop-off-place">Where will you leave the food?</label><select id="drop-off-place" value={dropOffPlace} onChange={(event) => setDropOffPlace(event.target.value)}><option>Front door</option><option>Back gate by the garage</option><option>I would like to come inside and say hi</option></select><p className="form-note">For a quick drop-off, text the family when you arrive so someone can bring it inside. To visit, choose the last option so the family knows.</p></>}
       <label htmlFor="plan-details">{type === 'food' ? 'What are you bringing? ' : 'Anything Mary and Stu should know? '}<span>(optional)</span></label><textarea id="plan-details" value={details} onChange={(event) => setDetails(event.target.value)} placeholder={type === 'food' ? 'Example: Chicken soup and bread' : 'Example: I can keep Mary company and help with small things around the house.'} />
       <p className="form-note privacy-note">This request stays private until Mary or Stu approves it. We will email you after they decide.</p>
-      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid || foodSlotUnavailable}><Check aria-hidden="true" /> {saving ? 'Sending request…' : 'Send request'}</button></div>
+      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid || foodSlotUnavailable || stopByConflict}><Check aria-hidden="true" /> {saving ? 'Sending request…' : 'Send request'}</button></div>
     </form>
   </ModalShell>
 }
@@ -1138,7 +1139,7 @@ function ApprovalModal({ request, onClose, onDecide }: { request: ApprovalReques
 }
 
 function HelpModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Help Needed.</strong> Find open rides, time with Mary, errands, Coco care, and other specific needs.</p></div><div><span>2</span><p><strong>Stop By.</strong> Choose a time during the family’s normal visiting hours. A different time can still be requested for approval.</p></div><div><span>3</span><p><strong>Bring Food.</strong> Choose one of the open food drop-off dates shown on the calendar.</p></div><div><span>4</span><p><strong>Availability.</strong> Share times when the family may call if something comes up. You are not signing up for anything yet.</p></div><div><span>5</span><p><strong>Wait for confirmation.</strong> Stop-by and food requests stay private until Mary or Stu approves them.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
+  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Help Needed.</strong> Choose an open ride, visit, errand, or other specific need.</p></div><div><span>2</span><p><strong>Stop By.</strong> Choose a time when Mary is free. Busy times are blocked automatically.</p></div><div><span>3</span><p><strong>Bring Food.</strong> Choose one of the open food drop-off dates shown on the calendar.</p></div><div><span>4</span><p><strong>Wait for confirmation.</strong> Stop-by and food requests stay private until Mary or Stu approves them.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
 }
 
 export default App
