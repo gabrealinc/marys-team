@@ -41,6 +41,7 @@ type StuWorkDefaults = {
 }
 
 type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
+type VisitSettings = { startTime: string; endTime: string }
 
 type SupportRequestNotification = {
   id: unknown
@@ -129,6 +130,8 @@ async function ensureSchema() {
     )
   `
   await sql`INSERT INTO food_settings (singleton, weekdays, start_time, end_time) VALUES (TRUE, '1,3', '14:00', '18:00') ON CONFLICT (singleton) DO NOTHING`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS visit_start_time TEXT NOT NULL DEFAULT '10:00'`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS visit_end_time TEXT NOT NULL DEFAULT '17:00'`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
   await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
@@ -698,13 +701,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
         startTime: String(defaultRows[0].startTime),
         endTime: String(defaultRows[0].endTime),
       } : null
-      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime" FROM food_settings WHERE singleton = TRUE`
+      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime" FROM food_settings WHERE singleton = TRUE`
       const foodSettings: FoodSettings = foodRowsSettings.length ? {
         weekdays: String(foodRowsSettings[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
         startTime: String(foodRowsSettings[0].startTime),
         endTime: String(foodRowsSettings[0].endTime),
       } : { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' }
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, foodReservedDates })
+      const visitSettings: VisitSettings = { startTime: String(foodRowsSettings[0]?.visitStartTime || '10:00'), endTime: String(foodRowsSettings[0]?.visitEndTime || '17:00') }
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, foodReservedDates })
     }
 
     if (request.method !== 'POST') {
@@ -885,6 +889,15 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ON CONFLICT (singleton) DO UPDATE SET weekdays = EXCLUDED.weekdays, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, updated_at = NOW()
       `
       return response.status(200).json({ foodSettings: { weekdays, startTime, endTime } })
+    }
+
+    if (action === 'saveVisitSettings') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change visiting hours.')
+      const startTime = clean(request.body?.startTime, 20)
+      const endTime = clean(request.body?.endTime, 20)
+      if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= startTime) return sendError(response, 400, 'Choose valid visiting hours.')
+      await sql`UPDATE food_settings SET visit_start_time = ${startTime}, visit_end_time = ${endTime}, updated_at = NOW() WHERE singleton = TRUE`
+      return response.status(200).json({ visitSettings: { startTime, endTime } })
     }
 
     if (action === 'addEvent' || action === 'addEventBatch') {

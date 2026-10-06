@@ -16,6 +16,7 @@ type ApprovalRequest = { status: string; requesterName: string; requesterPhone: 
 type PendingRequest = { id: string; eventId: string; requesterName: string; requesterPhone: string; requesterEmail: string; notificationSentAt?: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
 type StuWorkDefaults = { weekdays: number[]; startTime: string; endTime: string }
 type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
+type VisitSettings = { startTime: string; endTime: string }
 
 const whoDetails = {
   Mary: { label: 'For Mary', icon: HeartHandshake },
@@ -189,7 +190,7 @@ async function apiRequest(body?: unknown) {
 function App() {
   const [teamEvents, setTeamEvents] = useState<TeamEvent[]>([])
   const [filter, setFilter] = useState<SupportFilter>('all')
-  const [view, setView] = useState<'upcoming' | 'month' | 'week'>('upcoming')
+  const [view, setView] = useState<'help' | 'upcoming' | 'month'>('help')
   const [availabilityView, setAvailabilityView] = useState<'upcoming' | 'month'>('upcoming')
   const [availability, setAvailability] = useState<Availability[]>([])
   const [loading, setLoading] = useState(true)
@@ -212,11 +213,13 @@ function App() {
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
   const [stuWorkDefaults, setStuWorkDefaults] = useState<StuWorkDefaults | null>(null)
   const [foodSettings, setFoodSettings] = useState<FoodSettings>({ weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
+  const [visitSettings, setVisitSettings] = useState<VisitSettings>({ startTime: '10:00', endTime: '17:00' })
+  const [upcomingLimit, setUpcomingLimit] = useState(8)
   const [foodReservedDates, setFoodReservedDates] = useState<string[]>([])
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const visibleEvents = teamEvents
-    .filter((event) => (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view === 'month' || (!isNoSupport(event.helpNeeded) && !event.helper && !isCoveredByFamily(event, teamEvents) && matchesSupportFilter(event, filter))))
-    .sort((a, b) => view === 'upcoming' ? helpNeededPriority(a) - helpNeededPriority(b) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date))
+    .filter((event) => (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || (!isNoSupport(event.helpNeeded) && !event.helper && !isCoveredByFamily(event, teamEvents) && matchesSupportFilter(event, filter))))
+    .sort((a, b) => view === 'help' ? helpNeededPriority(a) - helpNeededPriority(b) || a.date.localeCompare(b.date) : a.date.localeCompare(b.date))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
   const allAvailabilityDates = new Set(availabilityDays.map((day) => day.dateKey))
@@ -232,6 +235,7 @@ function App() {
       setOrganizer(Boolean(data.organizer))
       setStuWorkDefaults(data.stuWorkDefaults || null)
       setFoodSettings(data.foodSettings || { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
+      setVisitSettings(data.visitSettings || { startTime: '10:00', endTime: '17:00' })
       setFoodReservedDates(Array.isArray(data.foodReservedDates) ? data.foodReservedDates : [])
       setCloudError('')
     } catch (error) {
@@ -250,6 +254,7 @@ function App() {
       setOrganizer(Boolean(data.organizer))
       setStuWorkDefaults(data.stuWorkDefaults || null)
       setFoodSettings(data.foodSettings || { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
+      setVisitSettings(data.visitSettings || { startTime: '10:00', endTime: '17:00' })
       setCloudError('')
       void apiRequest({ action: 'retryPendingNotifications' }).catch(() => undefined)
       if (data.organizer) await loadPendingRequests()
@@ -333,6 +338,19 @@ function App() {
     }
   }
 
+  async function saveVisitSettings(settings: VisitSettings) {
+    try {
+      const result = await apiRequest({ action: 'saveVisitSettings', ...settings })
+      setVisitSettings(result.visitSettings)
+      setMessage('Normal visiting hours were updated.')
+      window.setTimeout(() => setMessage(''), 5000)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not update visiting hours.')
+      return false
+    }
+  }
+
   async function saveFamilyCoverage(person: ForWho, dates: string[], allDay: boolean, startTime: string, endTime: string) {
     const coverageEvents: TeamEvent[] = dates.map((dateKey) => {
       const date = `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`
@@ -382,7 +400,7 @@ function App() {
       setShowAvailability(false)
       const matchingNeeds = teamEvents.filter((event) => !event.helper && !event.requestPending && !isNoSupport(event.helpNeeded) && entries.some((entry) => entry.day === event.date.slice(0, 8) && (event.isFlexible || availabilityMatchesTime(entry.time, event.time, event.endTime))))
       if (matchingNeeds.length) {
-        setView('upcoming')
+        setView('help')
         setFilter('all')
         window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
       }
@@ -471,7 +489,7 @@ function App() {
     }
   }
   function showSupportNeeded() {
-    setView('upcoming')
+    setView('help')
     setFilter('all')
     window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
@@ -506,20 +524,20 @@ function App() {
           </div>
         </section>
         <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Choose what works for you above. Availability means the family may call if something comes up. It does not sign you up for anything.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
-        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} stuWorkDefaults={stuWorkDefaults} foodSettings={foodSettings} onSaveStuWorkHours={saveStuWorkHours} onSaveFoodSettings={saveFoodSettings} onAddCoverage={setCoveragePerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
+        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} stuWorkDefaults={stuWorkDefaults} foodSettings={foodSettings} visitSettings={visitSettings} onSaveStuWorkHours={saveStuWorkHours} onSaveFoodSettings={saveFoodSettings} onSaveVisitSettings={saveVisitSettings} onAddCoverage={setCoveragePerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
           <div className="section-heading">
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
-            <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'week'} className={view === 'week' ? 'active' : ''} type="button" onClick={() => setView('week')}><CalendarDays aria-hidden="true" /> This Week</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
+            <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => { setUpcomingLimit(8); setView('upcoming') }}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
-          <p className="schedule-view-note">{view === 'upcoming' ? 'Rides and one-time needs are shown first, followed by routine coverage times.' : view === 'month' ? 'See the whole month at a glance. Tap any date to see its details.' : 'This calendar runs Sunday through Saturday.'}</p>
-          {view === 'upcoming' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
+          <p className="schedule-view-note">{view === 'help' ? 'Only open rides, appointments, and times when Mary may be alone.' : view === 'upcoming' ? 'Everything coming up, in date order.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
+          {view === 'help' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
             {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
           </div>}
-          {!loading && (view === 'upcoming' ? <div className="event-list">
-            {visibleEvents.length ? visibleEvents.map((event) => {
+          {!loading && (view !== 'month' ? <div className="event-list">
+            {visibleEvents.length ? visibleEvents.slice(0, view === 'upcoming' ? upcomingLimit : visibleEvents.length).map((event) => {
               const WhoIcon = whoDetails[event.forWho].icon
               const helper = helpers[event.id] || event.helper
               const suggestedHelpers = matchingAvailability(event, availability)
@@ -531,8 +549,8 @@ function App() {
                   <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setViewingEvent(event) }}><Pencil aria-hidden="true" /> {organizer ? 'View or edit details' : 'View details'}</button>
                 </div>
               </article>
-            }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly={view === 'upcoming'} />}
-          </div> : view === 'week' ? <WeekCalendar events={teamEvents} helpers={helpers} availability={availability} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} /> : <MonthCalendar events={teamEvents} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
+            }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly={view === 'help'} />}{view === 'upcoming' && visibleEvents.length > upcomingLimit && <button className="secondary-button show-more-button" type="button" onClick={() => setUpcomingLimit((current) => current + 8)}>Show more dates</button>}
+          </div> : <MonthCalendar events={teamEvents} onOpen={(eventId) => { const event = teamEvents.find((item) => item.id === eventId); if (event) setViewingEvent(event) }} />)}
         </section>
         <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>
@@ -546,7 +564,7 @@ function App() {
       {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} />}
       {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
-      {showPlanRequest && <PlanRequestModal type={showPlanRequest} events={teamEvents} foodSettings={foodSettings} foodReservedDates={foodReservedDates} onClose={() => setShowPlanRequest(null)} onSave={saveProposedPlan} />}
+      {showPlanRequest && <PlanRequestModal type={showPlanRequest} events={teamEvents} foodSettings={foodSettings} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => setShowPlanRequest(null)} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => (phoneKey(editingAvailability.phone) ? phoneKey(entry.phone) === phoneKey(editingAvailability.phone) : entry.name.trim().toLocaleLowerCase() === editingAvailability.name.trim().toLocaleLowerCase()) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
       {showAdd && <AddEventModal initialForWho={addForWho} availability={availability} events={teamEvents} onClose={() => setShowAdd(false)} onSave={saveEvents} />}
       {coveragePerson && <FamilyCoverageModal person={coveragePerson} onClose={() => setCoveragePerson(null)} onSave={async (dates, allDay, startTime, endTime) => { const saved = await saveFamilyCoverage(coveragePerson, dates, allDay, startTime, endTime); if (saved) setCoveragePerson(null); return saved }} />}
@@ -575,35 +593,6 @@ function getThirtyDays() {
 
 function EmptySchedule({ onAdd, supportOnly = false }: { onAdd: () => void; supportOnly?: boolean }) {
   return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No open support is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'This is good news. Check This Month to see the full family schedule.' : 'Mary or Stu can add the first appointment or task.'}</p>{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
-}
-
-function WeekCalendar({ events, helpers, availability, onOpen }: { events: TeamEvent[]; helpers: Record<string, string>; availability: Availability[]; onOpen?: (eventId: string) => void }) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const sunday = new Date(today)
-  sunday.setDate(today.getDate() - today.getDay())
-  const days = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(sunday)
-    date.setDate(sunday.getDate() + index)
-    return {
-      shortDay: date.toLocaleDateString('en-US', { weekday: 'short' }),
-      monthShort: date.toLocaleDateString('en-US', { month: 'short' }),
-      number: date.toLocaleDateString('en-US', { day: 'numeric' }),
-      fullDay: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }),
-      dateKey: `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`,
-    }
-  })
-  const weekDays = days.map((day) => ({
-    ...day,
-    events: events.filter((event) => !event.isFlexible && event.date.startsWith(day.dateKey)),
-    availablePeople: availability.filter((entry) => entry.day === day.dateKey),
-  }))
-  const lastDay = days.at(-1)?.fullDay
-  return <div className="week-calendar" role="region" aria-label={`Calendar from Sunday through ${lastDay}`}>{weekDays.map(({ shortDay, monthShort, number, fullDay, dateKey, events: dayEvents, availablePeople }) => <section className={`calendar-day ${dayEvents.length ? 'has-events' : ''}`} key={dateKey} aria-label={fullDay}><div className="calendar-date"><span>{shortDay}</span><strong>{number}</strong><small>{monthShort}</small></div><div className="calendar-items">{dayEvents.length ? dayEvents.map((event) => {
-    const helper = helpers[event.id] || event.helper
-    const matches = isNoSupport(event.helpNeeded) ? [] : availablePeople.filter((entry) => availabilityMatchesTime(entry.time, event.time, event.endTime))
-    return <button type="button" key={event.id} disabled={!onOpen} onClick={() => onOpen?.(event.id)}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeRangeLabel(event)}</small>{event.proposalType && helper ? <em>{event.proposalType === 'food' ? 'Food from' : 'Stopping by:'} {helper}</em> : isNoSupport(event.helpNeeded) ? <em>Busy</em> : helper ? <em>Confirmed with {helper}</em> : event.requestPending ? <em>Request submitted</em> : <em>{event.helpNeeded}</em>}{!helper && !event.requestPending && matches.length > 0 && <em className="availability-match">Available then: {matches.map((entry) => entry.name).join(', ')}</em>}</span></button>
-  }) : <p>No plans.</p>}</div></section>)}</div>
 }
 
 function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (eventId: string) => void }) {
@@ -639,10 +628,12 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
       <div className="month-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="month-grid">{days.map((day) => {
         const label = day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+        const openHelp = day.events.some((event) => !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending && !isCoveredByFamily(event, events))
+        const appointmentCount = day.events.filter((event) => !event.proposalType && isNoSupport(event.helpNeeded)).length
+        const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
         return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no plans'}`}>
           <span className="month-number">{day.date.getDate()}</span>
-          <span className="month-event-count">{day.events.length ? `${day.events.length} ${day.events.length === 1 ? 'item' : 'items'}` : ''}</span>
-          <span className="month-event-preview">{day.events.slice(0, 2).map((event) => <span key={event.id}><i className={`calendar-dot ${event.category}`} />{event.title}</span>)}</span>
+          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{appointmentCount > 0 && <span className="month-status appointment">{appointmentCount} {appointmentCount === 1 ? 'Appointment' : 'Appointments'}</span>}{foodCovered && <span className="month-status food">Food Covered</span>}</span>
         </button>
       })}</div>
     </div>
@@ -675,7 +666,7 @@ function EventDetailsModal({ event, organizer, availability, onClose, onEdit }: 
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
   </ModalShell>
 }
-function OrganizerPanel({ requests, events, stuWorkDefaults, foodSettings, onSaveStuWorkHours, onSaveFoodSettings, onAddCoverage, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; stuWorkDefaults: StuWorkDefaults | null; foodSettings: FoodSettings; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onAddCoverage: (person: ForWho) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
+function OrganizerPanel({ requests, events, stuWorkDefaults, foodSettings, visitSettings, onSaveStuWorkHours, onSaveFoodSettings, onSaveVisitSettings, onAddCoverage, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; stuWorkDefaults: StuWorkDefaults | null; foodSettings: FoodSettings; visitSettings: VisitSettings; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onAddCoverage: (person: ForWho) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
   const [tab, setTab] = useState<'requests' | 'work'>('requests')
   const [declining, setDeclining] = useState<PendingRequest | null>(null)
   const workKey = stuWorkDefaults ? `${stuWorkDefaults.weekdays.join(',')}-${stuWorkDefaults.startTime}-${stuWorkDefaults.endTime}` : 'new'
@@ -685,7 +676,7 @@ function OrganizerPanel({ requests, events, stuWorkDefaults, foodSettings, onSav
       <button role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'active' : ''} type="button" onClick={() => setTab('requests')}><Check aria-hidden="true" /> Requests{requests.length ? ` (${requests.length})` : ''}</button>
       <button role="tab" aria-selected={tab === 'work'} className={tab === 'work' ? 'active' : ''} type="button" onClick={() => setTab('work')}><Clock3 aria-hidden="true" /> Family Schedule</button>
     </div>
-    {tab === 'requests' ? requests.length ? <><p className="organizer-intro">Review support sign-ups, food drop-offs, and stop-by requests below. Contact information stays inside this private family area.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div><button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div> : <FamilyScheduleEditor key={workKey} events={events} defaults={stuWorkDefaults} foodSettings={foodSettings} onSaveStu={onSaveStuWorkHours} onSaveFood={onSaveFoodSettings} onAddCoverage={onAddCoverage} onAdd={onAddSchedule} onEdit={onEditEvent} />}
+    {tab === 'requests' ? requests.length ? <><p className="organizer-intro">Review support sign-ups, food drop-offs, and stop-by requests below. Contact information stays inside this private family area.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div><button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div> : <FamilyScheduleEditor key={workKey} events={events} defaults={stuWorkDefaults} foodSettings={foodSettings} visitSettings={visitSettings} onSaveStu={onSaveStuWorkHours} onSaveFood={onSaveFoodSettings} onSaveVisit={onSaveVisitSettings} onAddCoverage={onAddCoverage} onAdd={onAddSchedule} onEdit={onEditEvent} />}
     {declining && <DeclineRequestModal name={declining.requesterName} onClose={() => setDeclining(null)} onDecline={(reason) => { onDecide(declining.id, 'decline', reason); setDeclining(null) }} />}
   </section>
 }
@@ -695,7 +686,7 @@ function DeclineRequestModal({ name, onClose, onDecline }: { name: string; onClo
   return <ModalShell title="Decline this request" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (reason.trim()) onDecline(reason.trim()) }}><p className="modal-intro">Add a short, kind reason for {name}. It will be included in their email when an email address is available.</p><label htmlFor="decline-reason">Reason</label><textarea id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: We no longer need coverage at this time." autoFocus required /><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="danger-button" type="submit" disabled={!reason.trim()}>Decline request</button></div></form></ModalShell>
 }
 
-function FamilyScheduleEditor({ events, defaults, foodSettings, onSaveStu, onSaveFood, onAddCoverage, onAdd, onEdit }: { events: TeamEvent[]; defaults: StuWorkDefaults | null; foodSettings: FoodSettings; onSaveStu: (defaults: StuWorkDefaults) => Promise<boolean>; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onAddCoverage: (person: ForWho) => void; onAdd: (forWho: ForWho) => void; onEdit: (event: TeamEvent) => void }) {
+function FamilyScheduleEditor({ events, defaults, foodSettings, visitSettings, onSaveStu, onSaveFood, onSaveVisit, onAddCoverage, onAdd, onEdit }: { events: TeamEvent[]; defaults: StuWorkDefaults | null; foodSettings: FoodSettings; visitSettings: VisitSettings; onSaveStu: (defaults: StuWorkDefaults) => Promise<boolean>; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveVisit: (settings: VisitSettings) => Promise<boolean>; onAddCoverage: (person: ForWho) => void; onAdd: (forWho: ForWho) => void; onEdit: (event: TeamEvent) => void }) {
   const [person, setPerson] = useState<ForWho>('Mary')
   const [weekdays, setWeekdays] = useState(defaults?.weekdays || [1, 2, 3, 4, 5])
   const [startTime, setStartTime] = useState(defaults?.startTime || '09:00')
@@ -704,6 +695,8 @@ function FamilyScheduleEditor({ events, defaults, foodSettings, onSaveStu, onSav
   const [foodDays, setFoodDays] = useState(foodSettings.weekdays)
   const [foodStart, setFoodStart] = useState(foodSettings.startTime)
   const [foodEnd, setFoodEnd] = useState(foodSettings.endTime)
+  const [visitStart, setVisitStart] = useState(visitSettings.startTime)
+  const [visitEnd, setVisitEnd] = useState(visitSettings.endTime)
   const timeIsValid = endTime > startTime
 
   async function submit(event: React.FormEvent) {
@@ -734,14 +727,14 @@ function FamilyScheduleEditor({ events, defaults, foodSettings, onSaveStu, onSav
       <fieldset className="weekday-picker"><legend>Which days does Stu normally work?</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={weekdays.includes(day.value)} onChange={() => setWeekdays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset>
       <div className="field-row"><div><label htmlFor="stu-work-start">Usually starts</label><input id="stu-work-start" type="time" required value={startTime} onChange={(event) => setStartTime(event.target.value)} /></div><div><label htmlFor="stu-work-end">Usually ends</label><input id="stu-work-end" type="time" required value={endTime} onChange={(event) => setEndTime(event.target.value)} /></div></div>
       {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
-      <p className="work-hours-tip"><strong>Different hours one day?</strong> Open that work entry in This Week or This Month and choose Edit. That date will stay separate when the weekly default changes.</p>
+      <p className="work-hours-tip"><strong>Different hours one day?</strong> Open that work entry in Upcoming or This Month and choose Edit. That date will stay separate when the weekly default changes.</p>
       {!weekdays.length && <p className="work-hours-tip"><strong>No days selected.</strong> Saving will remove the regular work entries. Individually changed days will stay.</p>}
       <div className="form-actions"><button className="primary-button" type="submit" disabled={!timeIsValid || saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save weekly hours'}</button></div>
     </form></>}
     {person === 'Mary' && <p className="work-hours-tip"><strong>Mary’s appointments matter.</strong> Home visits, massage, PT, nurses, and outside appointments block conflicting food or visit times automatically.</p>}
     {person === 'Gabby' && <p className="work-hours-tip"><strong>Gabby is currently in town.</strong> Add the hours when she is working, away, or needs a break. Choose “Spend time with Mary” when someone else should cover that time.</p>}
     {person === 'Spencer' && <p className="work-hours-tip"><strong>Spencer is currently out of town.</strong> Add his visit dates when known, then add any working or away times during the visit.</p>}
-    {person === 'Family' && <form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the days and hours shown in Bring Food. Filled dates are hidden automatically.</p><fieldset className="weekday-picker"><legend>Available days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save food days</button></div></form>}
+    {person === 'Family' && <div className="family-rules"><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (visitEnd > visitStart) await onSaveVisit({ startTime: visitStart, endTime: visitEnd }) }}><h3>Normal visiting hours</h3><p>Friends are welcome to request a Stop By time during these hours. They can still request a different time for the family to approve.</p><div className="field-row"><div><label htmlFor="visit-start">From</label><input id="visit-start" type="time" value={visitStart} onChange={(event) => setVisitStart(event.target.value)} required /></div><div><label htmlFor="visit-end">Until</label><input id="visit-end" type="time" value={visitEnd} onChange={(event) => setVisitEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={visitEnd <= visitStart}><Check aria-hidden="true" /> Save visiting hours</button></div></form><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the days and hours shown in Bring Food. Filled dates are hidden automatically.</p><fieldset className="weekday-picker"><legend>Available days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save food days</button></div></form></div>}
   </div>
 }
 
@@ -779,14 +772,14 @@ function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: ()
   return <ModalShell title="Tell us when you can come" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.isFlexible ? 'Anytime' : `${event.dayLabel}, help is welcome anytime from ${eventTimeRangeLabel(event)}`}</span><p>{event.helpNeeded}</p></div><form onSubmit={submit}>{!event.isFlexible && <><p className="form-note"><strong>You do not need to cover the entire window.</strong> Choose the time that actually works for you.</p><div className="field-row"><div><label htmlFor="helper-start">I can arrive at</label><input id="helper-start" type="time" min={event.time} max={event.endTime} value={startTime} onChange={(e) => setStartTime(e.target.value)} required /></div><div><label htmlFor="helper-end">I need to leave at</label><input id="helper-end" type="time" min={event.time} max={event.endTime} value={endTime} onChange={(e) => setEndTime(e.target.value)} required /></div></div>{!timeIsValid && <p className="field-error">Choose a start and end time inside the open window.</p>}</>}<label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><label htmlFor="helper-phone">Your phone number</label><input id="helper-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" required /><label htmlFor="helper-email">Your email address</label><input id="helper-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required /><label htmlFor="helper-note">Note or question <span>(optional)</span></label><textarea id="helper-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Example: Is 1–4 PM enough coverage, or would another day be more useful?" /><p className="form-note">Your exact time and note will be included with your request. We will email you after it is approved or declined.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Submitting…' : 'Submit this time'}</button></div></form></ModalShell>
 }
 
-function PlanRequestModal({ type, events, foodSettings, foodReservedDates, onClose, onSave }: { type: PlanType; events: TeamEvent[]; foodSettings: FoodSettings; foodReservedDates: string[]; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
+function PlanRequestModal({ type, events, foodSettings, visitSettings, foodReservedDates, onClose, onSave }: { type: PlanType; events: TeamEvent[]; foodSettings: FoodSettings; visitSettings: VisitSettings; foodReservedDates: string[]; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
   const [contact] = useState(savedHelperContact)
   const [name, setName] = useState(contact.name)
   const [phone, setPhone] = useState(contact.phone)
   const [email, setEmail] = useState(contact.email)
   const [date, setDate] = useState(() => type === 'food' ? nextFoodDate(foodSettings.weekdays) : localDateInputValue())
-  const [time, setTime] = useState(type === 'food' ? foodSettings.startTime : '12:00')
-  const [endTime, setEndTime] = useState(type === 'food' ? addMinutes(foodSettings.startTime, 30) : '13:00')
+  const [time, setTime] = useState(type === 'food' ? foodSettings.startTime : visitSettings.startTime)
+  const [endTime, setEndTime] = useState(type === 'food' ? addMinutes(foodSettings.startTime, 30) : addHour(visitSettings.startTime))
   const [details, setDetails] = useState('')
   const [dropOffPlace, setDropOffPlace] = useState('Front door')
   const [saving, setSaving] = useState(false)
@@ -798,6 +791,7 @@ function PlanRequestModal({ type, events, foodSettings, foodReservedDates, onClo
   const maryHasAppointmentThen = type === 'food' && events.some((item) => item.forWho === 'Mary' && !item.proposalType && item.date.slice(0, 8) === compactDate && !item.isFlexible && item.time < endTime && item.endTime > time)
   const foodTimeIsValid = type !== 'food' || (time >= foodSettings.startTime && endTime <= foodSettings.endTime)
   const foodSlotUnavailable = type === 'food' && (!foodDayAllowed || foodDateIsTaken || maryHasAppointmentThen || !foodTimeIsValid)
+  const outsideVisitHours = type === 'stop_by' && (time < visitSettings.startTime || endTime > visitSettings.endTime)
   const foodDayNames = foodSettings.weekdays.map((day) => weekdayChoices.find((choice) => choice.value === day)?.label).filter(Boolean).join(' or ')
   const foodCalendarDays = getThirtyDays()
   const foodCalendarBlanks = new Date(`${foodCalendarDays[0].dateKey.slice(0, 4)}-${foodCalendarDays[0].dateKey.slice(4, 6)}-${foodCalendarDays[0].dateKey.slice(6, 8)}T12:00:00`).getDay()
@@ -818,7 +812,7 @@ function PlanRequestModal({ type, events, foodSettings, foodReservedDates, onClo
   }
 
   return <ModalShell title={type === 'food' ? 'Bring food' : 'Request a time to stop by'} onClose={onClose}>
-    <p className="modal-intro">{type === 'food' ? `Choose an open ${foodDayNames} between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}. Filled dates are unavailable.` : 'Suggest a time to spend with Mary, keep her company, and help with small things while you are there.'}</p>
+    <p className="modal-intro">{type === 'food' ? `Choose an open ${foodDayNames} between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}. Filled dates are unavailable.` : `The usual Stop By hours are ${eventTimeLabel(visitSettings.startTime)} – ${eventTimeLabel(visitSettings.endTime)}. Choose the time that works for you.`}</p>
     <form onSubmit={submit}>
       <label htmlFor="plan-name">Your name</label><input id="plan-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your first and last name" autoComplete="name" autoFocus required />
       <div className="field-row"><div><label htmlFor="plan-phone">Phone number</label><input id="plan-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(602) 555-0123" autoComplete="tel" required /></div><div><label htmlFor="plan-email">Email address</label><input id="plan-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required /></div></div>
@@ -826,6 +820,7 @@ function PlanRequestModal({ type, events, foodSettings, foodReservedDates, onClo
       {type === 'food' && <div className={`meal-week-status ${foodSlotUnavailable ? 'covered' : ''}`} role="status"><Utensils aria-hidden="true" /><p><strong>{!foodDayAllowed ? `Please choose ${foodDayNames}.` : foodDateIsTaken ? 'Someone is already bringing food that day.' : maryHasAppointmentThen ? 'Mary has an appointment during that time.' : !foodTimeIsValid ? `Choose a time between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}.` : 'This food drop-off time is open.'}</strong><br />Filled dates and appointment conflicts are blocked automatically.</p></div>}
       <div className="field-row"><div><label htmlFor="plan-time">{type === 'food' ? 'Drop off around' : 'Arrive'}</label><input id="plan-time" type="time" value={time} onChange={(event) => changeStartTime(event.target.value)} required /></div><div><label htmlFor="plan-end-time">{type === 'food' ? 'Until' : 'Leave'}</label><input id="plan-end-time" type="time" value={endTime} onChange={(event) => setEndTime(event.target.value)} required /></div></div>
       {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
+      {outsideVisitHours && <p className="outside-hours-note" role="status"><strong>Outside normal visiting hours.</strong> You can still send this request for the family to approve.</p>}
       {type === 'food' && <><label htmlFor="drop-off-place">Where will you leave the food?</label><select id="drop-off-place" value={dropOffPlace} onChange={(event) => setDropOffPlace(event.target.value)}><option>Front door</option><option>Back gate by the garage</option><option>I would like to come inside and say hi</option></select><p className="form-note">For a quick drop-off, text the family when you arrive so someone can bring it inside. To visit, choose the last option so the family knows.</p></>}
       <label htmlFor="plan-details">{type === 'food' ? 'What are you bringing? ' : 'Anything Mary and Stu should know? '}<span>(optional)</span></label><textarea id="plan-details" value={details} onChange={(event) => setDetails(event.target.value)} placeholder={type === 'food' ? 'Example: Chicken soup and bread' : 'Example: I can keep Mary company and help with small things around the house.'} />
       <p className="form-note privacy-note">This request stays private until Mary or Stu approves it. We will email you after they decide.</p>
@@ -1090,7 +1085,7 @@ function ApprovalModal({ request, onClose, onDecide }: { request: ApprovalReques
 }
 
 function HelpModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Help Needed.</strong> Find open rides, time with Mary, errands, Coco care, and other specific needs.</p></div><div><span>2</span><p><strong>Stop By.</strong> Suggest a time to spend with Mary, keep her company, and help with small things while you are there.</p></div><div><span>3</span><p><strong>Bring Food.</strong> Suggest a meal drop-off. The family approves up to three meals each week.</p></div><div><span>4</span><p><strong>Availability.</strong> Share times when the family may call if something comes up. You are not signing up for anything yet.</p></div><div><span>5</span><p><strong>Wait for confirmation.</strong> Stop-by and food requests stay private until Mary or Stu approves them.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
+  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Help Needed.</strong> Find open rides, time with Mary, errands, Coco care, and other specific needs.</p></div><div><span>2</span><p><strong>Stop By.</strong> Choose a time during the family’s normal visiting hours. A different time can still be requested for approval.</p></div><div><span>3</span><p><strong>Bring Food.</strong> Choose one of the open food drop-off dates shown on the calendar.</p></div><div><span>4</span><p><strong>Availability.</strong> Share times when the family may call if something comes up. You are not signing up for anything yet.</p></div><div><span>5</span><p><strong>Wait for confirmation.</strong> Stop-by and food requests stay private until Mary or Stu approves them.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
 }
 
 export default App

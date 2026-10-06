@@ -159,10 +159,11 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .month-cell.outside-month { background:#f8faf8; color:#8a968f; }
 .month-cell.today .month-number { width:30px; height:30px; margin:-3px 0 0 -3px; display:grid; place-items:center; border-radius:50%; background:var(--pine); color:#fff; }
 .month-number { font-size:1rem; font-weight:850; }
-.month-event-count { display:none; color:var(--pine); font-size:.68rem; font-weight:850; }
-.month-event-preview { min-width:0; display:grid; gap:5px; }
-.month-event-preview>span { min-width:0; padding:5px 6px; border-radius:6px; background:#edf4ee; display:flex; align-items:center; gap:5px; color:var(--pine-dark); font-size:.7rem; font-weight:750; line-height:1.2; overflow:hidden; }
-.month-event-preview>span .calendar-dot { width:7px; height:7px; flex:0 0 7px; margin:0; }
+.month-statuses { width:100%; min-width:0; display:grid; gap:5px; }
+.month-status { min-width:0; padding:5px 6px; border-radius:6px; font-size:.7rem; font-weight:850; line-height:1.2; overflow-wrap:anywhere; }
+.month-status.help { background:#fbe9e7; color:#9b302c; }
+.month-status.appointment { background:#e8f2e9; color:#285b44; }
+.month-status.food { background:#e6f1f8; color:#275f82; }
 .day-event-list { display:grid; gap:9px; }
 .day-event-list>button { width:100%; padding:13px; border:1px solid var(--line); border-radius:11px; background:#fff; color:var(--ink); display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:10px; text-align:left; }
 .day-event-list>button:hover { background:#f3f8f4; border-color:#88a992; }
@@ -344,6 +345,9 @@ textarea { min-height:95px; resize:vertical; }
 .field-error { margin:-4px 0 16px; color:#8a3f2f; font-weight:750; }
 .primary-button:disabled { cursor:not-allowed; opacity:.48; }
 .full-button { width:100%; margin-top:26px; }
+.show-more-button { width:min(100%,360px); margin:4px auto 0; }
+.family-rules { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+.outside-hours-note { margin:-2px 0 18px; padding:12px 14px; border:1px solid #dfc98f; border-radius:10px; background:#fff8e9; color:#654d20; line-height:1.45; }
 .help-list { display:grid; gap:18px; }
 .help-list>div { display:grid; grid-template-columns:44px 1fr; gap:14px; align-items:flex-start; }
 .help-list span { width:40px; height:40px; border-radius:50%; background:var(--mint); color:var(--pine-dark); display:grid; place-items:center; font-weight:900; }
@@ -438,8 +442,9 @@ textarea { min-height:95px; resize:vertical; }
   .month-cell.outside-month { opacity:.55; }
   .month-cell.today .month-number { width:27px; height:27px; margin:-2px 0 0; }
   .month-number { font-size:.87rem; }
-  .month-event-preview { display:none; }
-  .month-event-count { display:block; text-align:center; font-size:.59rem; line-height:1.1; }
+  .month-statuses { gap:2px; }
+  .month-status { padding:3px 2px; font-size:.52rem; line-height:1.05; text-align:center; }
+  .family-rules { grid-template-columns:1fr; }
   .modal { padding:28px 20px 22px; }
   .modal h2 { font-size:1.7rem; }
   .close-button { right:16px; top:16px; }
