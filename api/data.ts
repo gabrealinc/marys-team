@@ -965,10 +965,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         const isoDate = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`
         const dayLabel = new Date(`${isoDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
         const title = person === 'Stu' ? 'Stu at Work' : `${person} Work or Away`
-        if (matching) {
-          if (matching.scheduleSource === 'stu_work') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${day}) ON CONFLICT DO NOTHING`
-          await sql`UPDATE team_events SET event_date = ${`${day}T${startTime.replace(':', '')}00`}, day_label = ${dayLabel}, event_time = ${startTime}, end_time = ${endTime}, title = ${title}, details = ${`${person} is working or away.`}, help_needed = 'Spend time with Mary', schedule_source = 'family_busy', is_schedule_exception = TRUE WHERE id = ${String(matching.id)}`
-        } else {
+        if (!matching) {
           await sql`INSERT INTO team_events (id, category, for_who, event_date, day_label, event_time, end_time, title, details, location, help_needed, schedule_source, is_schedule_exception) VALUES (${randomUUID()}, 'family', ${person}, ${`${day}T${startTime.replace(':', '')}00`}, ${dayLabel}, ${startTime}, ${endTime}, ${title}, ${`${person} is working or away.`}, 'Home', 'Spend time with Mary', 'family_busy', TRUE)`
         }
       }
