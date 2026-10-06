@@ -1007,9 +1007,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
         SET category = ${event.category}, event_date = ${event.date}, day_label = ${event.dayLabel},
           event_time = ${event.time}, end_time = ${event.endTime}, title = ${event.title},
           details = ${event.details}, location = ${event.location || null}, help_needed = ${event.helpNeeded}, for_who = ${event.forWho}, is_flexible = ${event.isFlexible},
-          helper = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL WHEN ${event.helpNeeded === 'Need a ride'} THEN ${event.helper || null} ELSE helper END,
-          helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL WHEN ${event.helpNeeded === 'Need a ride'} THEN ${event.helperPhone || null} ELSE helper_phone END,
-          helper_email = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL WHEN ${event.helpNeeded === 'Need a ride'} THEN ${event.helperEmail || null} ELSE helper_email END,
+          helper = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE ${event.helper || null} END,
+          helper_phone = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE ${event.helperPhone || null} END,
+          helper_email = CASE WHEN ${isNoSupport(event.helpNeeded)} THEN NULL ELSE ${event.helperEmail || null} END,
           is_schedule_exception = CASE WHEN schedule_source = 'stu_work' THEN TRUE ELSE is_schedule_exception END
         WHERE id = ${event.id}
         RETURNING id, category, event_date AS date, day_label AS "dayLabel",
