@@ -113,6 +113,17 @@ function shouldShowEventLocation(event: Pick<TeamEvent, 'location' | 'helpNeeded
   return Boolean(event.location) && event.helpNeeded !== 'Spend time with Mary'
 }
 
+function eventDisplayTitle(event: TeamEvent) {
+  return event.helpNeeded === 'Spend time with Mary' && needsTimeWithMary(event.forWho) ? 'Spend time with Mary' : event.title
+}
+
+function eventDisplayDetails(event: TeamEvent) {
+  if (event.helpNeeded === 'Spend time with Mary' && needsTimeWithMary(event.forWho)) {
+    return event.details || `${event.forWho} is working or away.`
+  }
+  return event.details
+}
+
 function eventTimeRangeLabel(event: TeamEvent) {
   if (event.isFlexible) return 'Anytime'
   return `${eventTimeLabel(event.time)} – ${eventTimeLabel(event.endTime || addHour(event.time))}`
@@ -567,7 +578,7 @@ function App() {
               const suggestedHelpers = matchingAvailability(event, availability)
               return <article className={`event-card viewable ${event.category}`} id={`event-${event.id}`} key={event.id} onClick={() => setViewingEvent(event)}>
                 <div className="event-date"><span className="category-label"><WhoIcon aria-hidden="true" /> {whoDetails[event.forWho].label}</span><p>{event.dayLabel}</p><strong><Clock3 aria-hidden="true" /> {eventTimeRangeLabel(event)}</strong>{(event.repeatGroupId || event.scheduleSource === 'stu_work') && <small className="repeat-label"><Repeat2 aria-hidden="true" /> {event.scheduleSource === 'stu_work' ? event.isScheduleException ? 'Different from weekly hours' : 'Weekly work hours' : 'Repeats weekly'}</small>}</div>
-                <div className="event-info"><h3>{event.title}</h3><p>{event.details}</p>{shouldShowEventLocation(event) && <p className="location">{event.location}</p>}<span className="card-details-hint">Tap to see details</span>{event.proposalType ? <div className="needed planned-needed">{event.proposalType === 'food' ? <Utensils aria-hidden="true" /> : <Users aria-hidden="true" />}<span><small>Planned</small><strong>{event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by'}</strong></span></div> : <div className={`needed ${isNoSupport(event.helpNeeded) ? 'busy-needed' : ''}`}><ListChecks aria-hidden="true" /><span><small>{isNoSupport(event.helpNeeded) ? 'Busy time' : 'Support requested'}</small><strong>{isNoSupport(event.helpNeeded) ? 'Please do not stop by during this time.' : event.helpNeeded}</strong></span></div>}{!helper && !event.requestPending && suggestedHelpers.length > 0 && !isNoSupport(event.helpNeeded) && <div className="suggested-help"><HeartHandshake aria-hidden="true" /><span><small>{event.isFlexible ? 'People who may be available' : 'People available then'}</small><strong>{suggestedHelpers.map((entry) => entry.name).join(', ')}</strong><em>{event.isFlexible ? 'They may be able to fit this task into their availability.' : 'They can choose this time if it works for them.'}</em></span></div>}</div>
+                <div className="event-info"><h3>{eventDisplayTitle(event)}</h3><p>{eventDisplayDetails(event)}</p>{shouldShowEventLocation(event) && <p className="location">{event.location}</p>}<span className="card-details-hint">Tap to see details</span>{event.proposalType ? <div className="needed planned-needed">{event.proposalType === 'food' ? <Utensils aria-hidden="true" /> : <Users aria-hidden="true" />}<span><small>Planned</small><strong>{event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by'}</strong></span></div> : <div className={`needed ${isNoSupport(event.helpNeeded) ? 'busy-needed' : ''}`}><ListChecks aria-hidden="true" /><span><small>{isNoSupport(event.helpNeeded) ? 'Busy time' : 'Support requested'}</small><strong>{isNoSupport(event.helpNeeded) ? 'Please do not stop by during this time.' : event.helpNeeded}</strong></span></div>}{!helper && !event.requestPending && suggestedHelpers.length > 0 && !isNoSupport(event.helpNeeded) && <div className="suggested-help"><HeartHandshake aria-hidden="true" /><span><small>{event.isFlexible ? 'People who may be available' : 'People available then'}</small><strong>{suggestedHelpers.map((entry) => entry.name).join(', ')}</strong><em>{event.isFlexible ? 'They may be able to fit this task into their availability.' : 'They can choose this time if it works for them.'}</em></span></div>}</div>
                 <div className="event-actions">
                   {event.proposalType && helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : isNoSupport(event.helpNeeded) ? <div className="busy-status"><Clock3 aria-hidden="true" /><span><small>Status</small><strong>Busy</strong></span></div> : helper ? <div className="claimed"><Check aria-hidden="true" /><span><small>Confirmed</small><strong>{helper}</strong></span></div> : event.requestPending ? <div className="requested"><Clock3 aria-hidden="true" /><span><small>Request submitted</small><strong>{organizer && event.requesterName ? `Requested by ${event.requesterName}` : 'Waiting for confirmation'}</strong></span></div> : <button className="primary-button" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setSignupEvent(event) }}><HeartHandshake aria-hidden="true" /> Sign me up!</button>}
                   <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setViewingEvent(event) }}><Pencil aria-hidden="true" /> {organizer ? 'View or edit details' : 'View details'}</button>
@@ -647,7 +658,8 @@ function UpcomingWeekList({ events, daysToShow, onOpen }: { events: TeamEvent[];
         {day.events.length ? day.events.map((event) => <button type="button" key={event.id} onClick={() => onOpen(event.id)}>
           <span className={`calendar-dot ${event.category}`} aria-hidden="true" />
           <span>
-            <strong>{event.title}</strong>
+            <strong>{eventDisplayTitle(event)}</strong>
+            {eventDisplayTitle(event) !== event.title && <small>{eventDisplayDetails(event)}</small>}
             <small>{eventTimeRangeLabel(event)} · {whoDetails[event.forWho].label}</small>
             <em>{event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : 'Stop-by request submitted' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? 'Request submitted' : event.helpNeeded}</em>
           </span>
@@ -700,7 +712,7 @@ function MonthCalendar({ events, familyInTown, familyInTownDates, onOpen }: { ev
       })}</div>
     </div>
     {selectedDay && <ModalShell title={selectedDay.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} onClose={() => setSelectedDateKey('')}>
-      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event.id) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{event.title}</strong><small>{eventTimeRangeLabel(event)} · {whoDetails[event.forWho].label}</small><em>{isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
+      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event.id) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{eventDisplayTitle(event)}</strong><small>{eventTimeRangeLabel(event)} · {whoDetails[event.forWho].label}</small><em>{isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
     </ModalShell>}
   </>
 }
@@ -714,13 +726,13 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button><h2 id="modal-title">{title}</h2>{children}</section></div>
 }
 function EventDetailsModal({ event, organizer, availability, onClose, onEdit }: { event: TeamEvent; organizer: boolean; availability: Availability[]; onClose: () => void; onEdit: () => void }) {
-  return <ModalShell title={event.title} onClose={onClose}>
+  return <ModalShell title={eventDisplayTitle(event)} onClose={onClose}>
     <div className="event-detail-summary">
       <div><small>Who</small><strong>{whoDetails[event.forWho].label}</strong></div>
       <div><small>When</small><strong>{event.dayLabel}<br />{eventTimeRangeLabel(event)}</strong></div>
       <div><small>{event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Busy – please do not stop by' : event.helpNeeded}</strong></div>
       {shouldShowEventLocation(event) && <div><small>Where</small><strong>{event.location}</strong></div>}
-      <div><small>Details</small><p>{event.details}</p></div>
+      <div><small>Details</small><p>{eventDisplayDetails(event)}</p></div>
       {event.helper && <div><small>Confirmed</small><strong>{event.helper}</strong>{(event.helperEmail || event.helperPhone) && <span className="compact-contact">{event.helperEmail && <a href={`mailto:${event.helperEmail}`}>{event.helperEmail}</a>}{event.helperPhone && <a href={`tel:${event.helperPhone}`}>{event.helperPhone}</a>}</span>}</div>}
       {!event.helper && event.requestPending && <div><small>Status</small><strong>Request submitted</strong></div>}
       {organizer && !event.helper && availability.length > 0 && <div><small>People who may be available</small><div className="compact-contact-list">{availability.slice(0, 8).map((entry) => <span key={entry.id}><strong>{entry.name}</strong><small>{event.isFlexible ? `${availabilityDayLabel(entry.day)}, ${availabilityTimeLabel(entry.time)}` : availabilityTimeLabel(entry.time)}</small><a href={`sms:${entry.phone}`}>Text {entry.phone}</a></span>)}</div></div>}
