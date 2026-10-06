@@ -89,6 +89,23 @@ function addMinutes(value: string, amount: number) {
   return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
+function minutesBetween(start: string, end: string) {
+  const [startHours, startMinutes] = start.split(':').map(Number)
+  const [endHours, endMinutes] = end.split(':').map(Number)
+  return (endHours * 60 + endMinutes) - (startHours * 60 + startMinutes)
+}
+
+function stopBySlots(start: string, end: string) {
+  const slots: { start: string; end: string }[] = []
+  let cursor = start
+  while (minutesBetween(cursor, end) >= 60) {
+    const slotEnd = minutesBetween(cursor, end) > 120 ? addMinutes(cursor, 120) : end
+    slots.push({ start: cursor, end: slotEnd })
+    cursor = slotEnd
+  }
+  return slots
+}
+
 function isNoSupport(value: string) {
   return value === 'No help needed' || value === 'No help needed, just sharing the schedule'
 }
@@ -228,7 +245,7 @@ function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEv
       if (blockEnd > cursor) cursor = blockEnd
     }
     if (cursor < visitSettings.endTime) openWindows.push({ start: cursor, end: visitSettings.endTime })
-    for (const window of openWindows.filter((entry) => entry.end > entry.start)) {
+    for (const window of openWindows.flatMap((entry) => stopBySlots(entry.start, entry.end))) {
       publicEvents.push({
         id: `open-${day.dateKey}-${window.start}-${window.end}`,
         category: 'company',
@@ -697,10 +714,12 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
     const date = new Date(today)
     date.setDate(today.getDate() + index)
     const dateKey = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
+    const dayEvents = events.filter((event) => !event.isFlexible && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time))
+    const urgentEvents = dayEvents.filter((event) => !event.publicAction && !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper)
     return {
       date,
       dateKey,
-      events: events.filter((event) => !event.isFlexible && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time)),
+      events: urgentEvents.length ? urgentEvents : dayEvents,
     }
   })
 
@@ -923,7 +942,7 @@ function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSett
   }
 
   return <ModalShell title={type === 'food' ? 'Bring food' : 'Request a time to stop by'} onClose={onClose}>
-    <p className="modal-intro">{type === 'food' ? `Choose an open ${foodDayNames} between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}. Filled dates are unavailable.` : `The usual Stop By hours are ${eventTimeLabel(visitSettings.startTime)} – ${eventTimeLabel(visitSettings.endTime)}. Choose the time that works for you.`}</p>
+    <p className="modal-intro">{type === 'food' ? `Choose an open ${foodDayNames} between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}. Filled dates are unavailable.` : `The usual Stop By hours are ${eventTimeLabel(visitSettings.startTime)} – ${eventTimeLabel(visitSettings.endTime)}. Choose the time that works for you. You may stay longer if you would like.`}</p>
     <form onSubmit={submit}>
       <label htmlFor="plan-name">Your name</label><input id="plan-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your first and last name" autoComplete="name" autoFocus required />
       <div className="field-row"><div><label htmlFor="plan-phone">Phone number</label><input id="plan-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(602) 555-0123" autoComplete="tel" required /></div><div><label htmlFor="plan-email">Email address</label><input id="plan-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required /></div></div>
@@ -933,6 +952,7 @@ function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSett
       {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
       {outsideVisitHours && <p className="outside-hours-note" role="status"><strong>Outside normal visiting hours.</strong> You can still send this request for the family to approve.</p>}
       {type === 'stop_by' && maryBusyThatDay.length > 0 && <div className={`meal-week-status ${stopByConflict ? 'covered' : ''}`} role="status"><Clock3 aria-hidden="true" /><p><strong>{stopByConflict ? 'That time is already busy. Please choose another time.' : 'Mary is open during the time you chose.'}</strong><br />Already scheduled that day: {maryBusyThatDay.map((item) => eventTimeRangeLabel(item)).join(', ')}.</p></div>}
+      {type === 'stop_by' && <p className="form-note"><strong>A quiet visit is welcome.</strong> Mary may need to nap while you are there. It is completely fine to sit with her quietly while she rests.</p>}
       {type === 'food' && <><label htmlFor="drop-off-place">Where will you leave the food?</label><select id="drop-off-place" value={dropOffPlace} onChange={(event) => setDropOffPlace(event.target.value)}><option>Front door</option><option>Back gate by the garage</option><option>I would like to come inside and say hi</option></select><p className="form-note">For a quick drop-off, text the family when you arrive so someone can bring it inside. To visit, choose the last option so the family knows.</p></>}
       <label htmlFor="plan-details">{type === 'food' ? 'What are you bringing? ' : 'Anything Mary and Stu should know? '}<span>(optional)</span></label><textarea id="plan-details" value={details} onChange={(event) => setDetails(event.target.value)} placeholder={type === 'food' ? 'Example: Chicken soup and bread' : 'Example: I can keep Mary company and help with small things around the house.'} />
       <p className="form-note privacy-note">This request stays private until Mary or Stu approves it. We will email you after they decide.</p>
