@@ -8,7 +8,6 @@ import './App.css'
 type Category = 'appointment' | 'company' | 'home' | 'family'
 type ForWho = 'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'Coco' | 'Family'
 type PlanType = 'food' | 'stop_by'
-type SupportFilter = 'all' | 'ride' | 'mary' | 'home' | 'coco'
 type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; helperPhone?: string; helperEmail?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string; scheduleSource?: string; isScheduleException?: boolean; isFlexible?: boolean; proposalType?: PlanType; isCalculatedCoverage?: boolean; publicAction?: PlanType }
 type DriverContact = { name: string; phone: string; email: string }
 type Availability = { id: string; name: string; phone: string; day: string; time: string; note: string; editable?: boolean }
@@ -49,15 +48,6 @@ function savedHelperContact() {
 
 function needsTimeWithMary(forWho: ForWho) {
   return forWho === 'Stu' || forWho === 'Gabby' || forWho === 'Spencer' || forWho === 'Coco'
-}
-
-function matchesSupportFilter(event: TeamEvent, filter: SupportFilter) {
-  if (filter === 'all') return true
-  const support = event.helpNeeded.toLocaleLowerCase()
-  if (filter === 'ride') return support.includes('ride')
-  if (filter === 'mary') return support.includes('mary') || support.includes('visit') || support.includes('check-in')
-  if (filter === 'home') return support.includes('home') || support.includes('errand') || support.includes('meal')
-  return support.includes('coco') || support.includes('pet')
 }
 
 function availabilityTimeLabel(value: string) {
@@ -248,7 +238,6 @@ async function apiRequest(body?: unknown) {
 
 function App() {
   const [teamEvents, setTeamEvents] = useState<TeamEvent[]>([])
-  const [filter, setFilter] = useState<SupportFilter>('all')
   const [view, setView] = useState<'help' | 'upcoming' | 'month'>('help')
   const [availabilityView, setAvailabilityView] = useState<'upcoming' | 'month'>('upcoming')
   const [availability, setAvailability] = useState<Availability[]>([])
@@ -285,7 +274,7 @@ function App() {
   const helpFeedEvents = supportFeedEvents.filter((event) => !event.helper && !event.requestPending)
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
   const visibleEvents = (view === 'help' ? helpFeedEvents : teamEvents)
-    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))) && (view !== 'help' || matchesSupportFilter(event, filter)))
+    .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))))
     .sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
   const availabilityDays = getThirtyDays()
@@ -486,7 +475,6 @@ function App() {
       const matchingNeeds = teamEvents.filter((event) => !event.helper && !event.requestPending && !isNoSupport(event.helpNeeded) && entries.some((entry) => entry.day === event.date.slice(0, 8) && (event.isFlexible || availabilityMatchesTime(entry.time, event.time, event.endTime))))
       if (matchingNeeds.length) {
         setView('help')
-        setFilter('all')
         window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
       }
       setMessage(matchingNeeds.length ? `Thank you, ${entries[0].name}. We found ${matchingNeeds.length} open ${matchingNeeds.length === 1 ? 'time' : 'times'} that match your availability. Choose one below if it works for you.` : `Thank you, ${entries[0].name}. Your availability was added. The family may call if something comes up, but you are not signed up for anything.`)
@@ -575,7 +563,6 @@ function App() {
   }
   function showSupportNeeded() {
     setView('help')
-    setFilter('all')
     window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
   function openPlanRequest(type: PlanType, window: TeamEvent | null = null) {
@@ -617,9 +604,6 @@ function App() {
             <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
           <p className="schedule-view-note">{view === 'help' ? 'See what is open, requested, or confirmed and who is signed up.' : view === 'upcoming' ? 'The next 10 days, starting today.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
-          {view === 'help' && <div className="filters" role="group" aria-label="Show schedule items by support needed">
-            {([['all', 'Everything'], ['ride', 'Rides'], ['mary', 'Spend time with Mary'], ['home', 'Home & errands'], ['coco', 'Coco']] as const).map(([value, label]) => <button key={value} aria-pressed={filter === value} className={filter === value ? 'active' : ''} type="button" onClick={() => setFilter(value)}>{label}</button>)}
-          </div>}
           {!loading && (view === 'help' ? <div className="event-list">
             {visibleEvents.length ? visibleEvents.map((event) => {
               const helper = helpers[event.id] || event.helper
