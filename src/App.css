@@ -489,6 +489,8 @@ textarea { min-height:95px; resize:vertical; }
   .toast { left:14px; right:14px; bottom:14px; }
   #organizer-panel,#schedule-title { scroll-margin-top:145px; }
 }
+.family-rules .simple-settings:first-child { display:none; }
+.family-rules { grid-template-columns:1fr; }
 @media print {
   .site-header,.quick-actions,.helper-note,.filters,.view-toggle,.event-actions,.availability-section .secondary-button,footer { display:none!important; }
   body { background:#fff; }
