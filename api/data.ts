@@ -44,6 +44,7 @@ type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
 type VisitSettings = { startTime: string; endTime: string }
 type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
 type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
+type CareTeamMember = { id: string; name: string; phone: string; email: string; role: string; weekdays: number[]; startTime: string; endTime: string; autoAssign: boolean }
 
 type SupportRequestNotification = {
   id: unknown
@@ -164,6 +165,20 @@ async function ensureSchema() {
   await sql`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS request_start_time TEXT`
   await sql`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS request_end_time TEXT`
   await sql`ALTER TABLE support_requests ADD COLUMN IF NOT EXISTS request_note TEXT NOT NULL DEFAULT ''`
+  await sql`
+    CREATE TABLE IF NOT EXISTS care_team (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT 'Helper',
+      weekdays TEXT NOT NULL DEFAULT '',
+      start_time TEXT NOT NULL DEFAULT '09:00',
+      end_time TEXT NOT NULL DEFAULT '17:00',
+      auto_assign BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS one_pending_request_per_event ON support_requests(event_id) WHERE status = 'pending'`
   await sql`
     CREATE TABLE IF NOT EXISTS notification_log (
@@ -721,7 +736,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const familyInTown: FamilyInTown = { Stu: Boolean(foodRowsSettings[0]?.stuInTown ?? true), Gabby: Boolean(foodRowsSettings[0]?.gabbyInTown ?? true), Spencer: Boolean(foodRowsSettings[0]?.spencerInTown ?? false) }
       const parseDates = (value: unknown) => String(value || '').split(',').filter((date) => /^\d{8}$/.test(date))
       const familyInTownDates: FamilyInTownDates = { Stu: parseDates(foodRowsSettings[0]?.stuInTownDates), Gabby: parseDates(foodRowsSettings[0]?.gabbyInTownDates), Spencer: parseDates(foodRowsSettings[0]?.spencerInTownDates) }
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, familyInTownDates, foodReservedDates })
+      const careRows = await sql`SELECT id, name, phone, email, role, weekdays, start_time AS "startTime", end_time AS "endTime", auto_assign AS "autoAssign" FROM care_team ORDER BY name ASC`
+      const careTeam = careRows.map((row) => ({ ...row, weekdays: String(row.weekdays || '').split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6), phone: isOrganizer ? row.phone : '', email: isOrganizer ? row.email : '' })) as CareTeamMember[]
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam })
     }
 
     if (request.method !== 'POST') {
@@ -1014,6 +1031,26 @@ export default async function handler(request: VercelRequest, response: VercelRe
       `
       if (!rows.length) return sendError(response, 404, 'This schedule item is no longer available.')
       return response.status(200).json({ saved: true })
+    }
+
+    if (action === 'saveCareTeamMember') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to update the care team.')
+      const id = clean(request.body?.member?.id, 100) || randomUUID()
+      const name = clean(request.body?.member?.name, 120)
+      const phone = clean(request.body?.member?.phone, 40)
+      const email = clean(request.body?.member?.email, 200).toLocaleLowerCase()
+      const role = clean(request.body?.member?.role, 40) || 'Helper'
+      const weekdays = Array.isArray(request.body?.member?.weekdays) ? request.body.member.weekdays.map(Number).filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6) : []
+      const startTime = clean(request.body?.member?.startTime, 5)
+      const endTime = clean(request.body?.member?.endTime, 5)
+      const autoAssign = Boolean(request.body?.member?.autoAssign)
+      if (!name || !weekdays.length || !/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= startTime) return sendError(response, 400, 'Add a name, at least one day, and valid hours.')
+      await sql`
+        INSERT INTO care_team (id, name, phone, email, role, weekdays, start_time, end_time, auto_assign)
+        VALUES (${id}, ${name}, ${phone}, ${email}, ${role}, ${weekdays.join(',')}, ${startTime}, ${endTime}, ${autoAssign})
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, email = EXCLUDED.email, role = EXCLUDED.role, weekdays = EXCLUDED.weekdays, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, auto_assign = EXCLUDED.auto_assign
+      `
+      return response.status(200).json({ member: { id, name, phone, email, role, weekdays, startTime, endTime, autoAssign } })
     }
 
     if (action === 'updateEvent') {
