@@ -614,6 +614,15 @@ function App() {
     }
     document.getElementById('organizer-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+  function openScheduleEvent(event: TeamEvent) {
+    if (event.publicAction) {
+      openPlanRequest(event.publicAction, event)
+    } else if (organizer && !event.isCalculatedCoverage) {
+      setEditingEvent(event)
+    } else {
+      setViewingEvent(event)
+    }
+  }
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -655,7 +664,7 @@ function App() {
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly />}
-          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} /></div> : <MonthCalendar events={publicScheduleEvents} helpNeededEvents={supportFeedEvents} onOpen={(event) => event.publicAction ? openPlanRequest(event.publicAction, event) : setViewingEvent(event)} />)}
+          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={openScheduleEvent} /></div> : <MonthCalendar events={publicScheduleEvents} helpNeededEvents={supportFeedEvents} onOpen={openScheduleEvent} />)}
         </section>
         {organizer && <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>
