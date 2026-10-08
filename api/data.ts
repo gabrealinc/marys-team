@@ -694,7 +694,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
       `
       const foodReservedDates = foodRows.map((row) => String(row.date))
       const homeAddress = String(process.env.HOME_ADDRESS || '').trim().toLocaleLowerCase()
-      const publicEvents = events.map((event) => isOrganizer ? event : {
+      const visibleEvents = isOrganizer ? events : events.filter((event) => event.proposalType !== 'stop_by')
+      const publicEvents = visibleEvents.map((event) => isOrganizer ? event : {
         ...event,
         location: String(event.location || '').trim().toLocaleLowerCase() === 'home' || (homeAddress && String(event.location || '').trim().toLocaleLowerCase() === homeAddress) ? 'Home' : event.location,
         helperPhone: undefined,
@@ -1121,7 +1122,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const time = clean(request.body?.time, 5)
       const endTime = clean(request.body?.endTime, 5)
       const submittedDetails = clean(request.body?.details, 1000)
-      if (!['food', 'stop_by'].includes(type)) return sendError(response, 400, 'Choose whether you are bringing food or stopping by.')
+      if (type !== 'food') return sendError(response, 400, 'Only food drop-offs can be requested from the public page.')
       if (!name || !phone || !/^\S+@\S+\.\S+$/.test(email)) return sendError(response, 400, 'Please enter your name, phone number, and email address.')
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= time) return sendError(response, 400, 'Choose a date and an ending time that is later than the starting time.')
       if (date < phoenixToday()) return sendError(response, 400, 'Choose today or a future date.')
