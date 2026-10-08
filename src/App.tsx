@@ -696,7 +696,7 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
             <small>{eventTimeRangeLabel(event)}</small>
             <em>{event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em>
           </span>
-        </button>) : <p>No plans.</p>}
+        </button>) : <p>Not available.</p>}
       </div>
     </section>)}
   </div>
@@ -738,9 +738,9 @@ function MonthCalendar({ events, helpNeededEvents, onOpen }: { events: TeamEvent
         const openHelp = helpNeededEvents.some((event) => event.date.startsWith(day.dateKey) && !event.helper && !event.requestPending)
         const busyCount = day.events.filter((event) => !event.proposalType && !event.publicAction && isNoSupport(event.helpNeeded)).length
         const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
-        return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no plans'}`}>
+        return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', not available'}`}>
           <span className="month-number">{day.date.getDate()}</span>
-          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{busyCount > 0 && <span className="month-status appointment">Busy</span>}{foodCovered && <span className="month-status food">Food Covered</span>}</span>
+          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{busyCount > 0 && <span className="month-status appointment">Busy</span>}{foodCovered && <span className="month-status food">Food Covered</span>}{!day.events.length && <span className="month-status appointment">Not available</span>}</span>
         </button>
       })}</div>
     </div>
