@@ -683,7 +683,7 @@ function App() {
                   <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setViewingEvent(event) }}><Pencil aria-hidden="true" /> {organizer ? 'View or edit details' : 'View details'}</button>
                 </div>
               </article>
-            }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} onJoin={() => setShowSupportContact(true)} supportOnly />}
+            }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} onJoin={() => setShowSupportContact(true)} onAlreadySignedUp={() => setView('month')} supportOnly />}
           </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={openScheduleEvent} /></div> : <MonthCalendar events={publicScheduleEvents} onOpen={openScheduleEvent} />)}
         </section>
         {organizer && <section className="availability-section" aria-labelledby="availability-title">
@@ -729,8 +729,8 @@ function getThirtyDays() {
   })
 }
 
-function EmptySchedule({ onAdd, onJoin, supportOnly = false }: { onAdd: () => void; onJoin?: () => void; supportOnly?: boolean }) {
-  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No help is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'Everything is covered. Add your contact information so the family knows you are open to helping if something comes up. We greatly appreciate it.' : 'Mary or Stu can add the first appointment or task.'}</p>{supportOnly && onJoin && <button className="primary-button" type="button" onClick={onJoin}>Let us know you are open to helping</button>}{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
+function EmptySchedule({ onAdd, onJoin, onAlreadySignedUp, supportOnly = false }: { onAdd: () => void; onJoin?: () => void; onAlreadySignedUp?: () => void; supportOnly?: boolean }) {
+  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No help is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'Everything is covered. Add your contact information so the family knows you are open to helping if something comes up. We greatly appreciate it.' : 'Mary or Stu can add the first appointment or task.'}</p>{supportOnly && <div className="empty-state-actions">{onJoin && <button className="primary-button" type="button" onClick={onJoin}>Let us know you are open to helping</button>}{onAlreadySignedUp && <button className="secondary-button" type="button" onClick={onAlreadySignedUp}>Already signed up</button>}</div>}{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
 }
 
 function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[]; daysToShow: number; onOpen: (event: TeamEvent) => void }) {

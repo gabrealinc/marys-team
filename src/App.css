@@ -77,6 +77,7 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .empty-state h3,.month-empty h3 { margin:15px 0 7px; color:var(--pine-dark); font-family:Georgia,serif; font-size:1.55rem; }
 .empty-state p,.month-empty>p:not(.eyebrow) { margin:0 auto 22px; color:var(--muted); line-height:1.5; }
 .empty-state .primary-button,.month-empty .primary-button { margin-inline:auto; }
+.empty-state-actions { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; }
 .month-empty>.eyebrow { margin-top:14px; }
 .event-card { background:var(--paper); border:1px solid var(--line); border-left:7px solid var(--pine); border-radius:16px; display:grid; grid-template-columns:235px minmax(0,1fr) 210px; min-height:220px; box-shadow:0 5px 18px rgba(36,59,49,.06); overflow:hidden; transition:border-color .15s,box-shadow .15s; }
 .event-card.viewable { cursor:pointer; }
