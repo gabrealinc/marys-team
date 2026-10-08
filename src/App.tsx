@@ -159,6 +159,20 @@ function confirmedContacts(events: TeamEvent[]) {
   return events.filter((event) => event.helper).map((event) => ({ name: event.helper || '', phone: event.helperPhone || '', email: event.helperEmail || '' })).filter((contact, index, contacts) => contacts.findIndex((item) => item.name.trim().toLocaleLowerCase() === contact.name.trim().toLocaleLowerCase()) === index).sort((a, b) => a.name.localeCompare(b.name))
 }
 
+function knownContacts(events: TeamEvent[], availability: Availability[]) {
+  const contacts = [...confirmedContacts(events)]
+  for (const entry of availability) {
+    const existing = contacts.find((contact) => phoneKey(contact.phone) && phoneKey(contact.phone) === phoneKey(entry.phone))
+      || contacts.find((contact) => contact.name.trim().toLocaleLowerCase() === entry.name.trim().toLocaleLowerCase())
+    if (existing) {
+      if (!existing.phone) existing.phone = entry.phone
+    } else {
+      contacts.push({ name: entry.name, phone: entry.phone, email: '' })
+    }
+  }
+  return contacts.sort((a, b) => a.name.localeCompare(b.name))
+}
+
 function phoneKey(value: string) {
   return value.replace(/\D/g, '')
 }
@@ -1087,7 +1101,7 @@ function DriverFields({ contacts, driver, onChange }: { contacts: DriverContact[
     <label htmlFor="ride-driver">Who is driving?</label>
     <select id="ride-driver" value={choice} onChange={(event) => choose(event.target.value)}>
       <option value="open">Still need a driver</option>
-      {contacts.map((contact, index) => <option value={`contact:${index}`} key={`${contact.name}-${contact.phone}`}>{contact.name} · available then</option>)}
+      {contacts.map((contact, index) => <option value={`contact:${index}`} key={`${contact.name}-${contact.phone}`}>{contact.name}</option>)}
       <option value="manual">Someone else has agreed</option>
     </select>
     {choice !== 'open' && <><div className="field-row"><div><label htmlFor="driver-name">Driver’s name</label><input id="driver-name" required value={driver.name} onChange={(event) => onChange({ ...driver, name: event.target.value })} /></div><div><label htmlFor="driver-phone">Phone number</label><input id="driver-phone" type="tel" required value={driver.phone} onChange={(event) => onChange({ ...driver, phone: event.target.value })} autoComplete="tel" /></div></div><label htmlFor="driver-email">Email address</label><input id="driver-email" type="email" required value={driver.email} onChange={(event) => onChange({ ...driver, email: event.target.value })} autoComplete="email" placeholder="Needed to send confirmation" /><p className="form-note">This person will receive a confirmation email with the appointment details and destination.</p></>}
@@ -1153,7 +1167,7 @@ function EditEventModal({ event, availability, events, onClose, onSave, onRemove
   const [confirmRemove, setConfirmRemove] = useState(false)
   const timeIsValid = form.isFlexible || form.endTime > form.time
   const hideLocation = form.helpNeeded === 'Spend time with Mary'
-  const contacts = confirmedContacts(events)
+  const contacts = knownContacts(events, availability)
 
   function submit(submitEvent: React.FormEvent) {
     submitEvent.preventDefault()
@@ -1168,7 +1182,7 @@ function EditEventModal({ event, availability, events, onClose, onSave, onRemove
     {!form.isFlexible && <div className="field-row"><div><label htmlFor="edit-event-time">Starts</label><input id="edit-event-time" type="time" required value={form.time} onChange={(changeEvent) => setForm({ ...form, time: changeEvent.target.value, endTime: addHour(changeEvent.target.value) })} /></div><div><label htmlFor="edit-event-end-time">Ends</label><input id="edit-event-end-time" type="time" required value={form.endTime} onChange={(changeEvent) => setForm({ ...form, endTime: changeEvent.target.value })} /></div></div>}
     {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
     <label htmlFor="edit-event-help">What support is needed?</label><select id="edit-event-help" value={form.helpNeeded} onChange={(changeEvent) => setForm({ ...form, helpNeeded: changeEvent.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
-    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={availableDriverContacts(form.date, form.time, form.endTime, availability, events)} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
+    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={contacts} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
     {!isNoSupport(form.helpNeeded) && form.helpNeeded !== 'Need a ride' && <><label htmlFor="edit-event-helper">Confirmed person</label><select id="edit-event-helper" value={form.helper} onChange={(changeEvent) => { const contact = contacts.find((item) => item.name === changeEvent.target.value); setForm({ ...form, helper: contact?.name || '', helperPhone: contact?.phone || '', helperEmail: contact?.email || '' }) }}><option value="">No one assigned</option>{contacts.map((contact) => <option key={contact.name} value={contact.name}>{contact.name}</option>)}</select>{event.helper && !form.helper && <p className="form-note"><strong>{event.helper} will be removed from this time when you save.</strong></p>}</>}
     {!hideLocation && <><label htmlFor="edit-event-location-choice">Where?</label><select id="edit-event-location-choice" value={form.locationChoice} onChange={(changeEvent) => { const locationChoice = changeEvent.target.value; setForm({ ...form, locationChoice, title: form.forWho === 'Mary' && event.category === 'appointment' ? locationChoice === 'home' ? 'At Home Appointment' : 'Appointment' : form.title }) }}><option value="home">Home</option><option value="location">Location</option></select>{form.locationChoice === 'location' && <><label htmlFor="edit-event-location">Location name or address</label><input id="edit-event-location" required value={form.location || ''} onChange={(changeEvent) => setForm({ ...form, location: changeEvent.target.value })} /></>}</>}
     <label htmlFor="edit-event-details">Details {!(form.forWho === 'Mary' && event.category === 'appointment') && <span>(optional)</span>}</label><textarea id="edit-event-details" required={form.forWho === 'Mary' && event.category === 'appointment'} value={form.details} onChange={(changeEvent) => setForm({ ...form, details: changeEvent.target.value })} placeholder={form.forWho === 'Mary' && event.category === 'appointment' ? 'Example: Stretch with Cara' : defaultEventDetails} />
