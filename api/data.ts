@@ -1008,7 +1008,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!eventId || !helper) return sendError(response, 400, 'Choose someone to add to this time.')
       const rows = await sql`
         UPDATE team_events
-        SET helper = ${helper}, helper_phone = ${helperPhone || null}, helper_email = ${helperEmail || null}, updated_at = NOW()
+        SET helper = ${helper}, helper_phone = ${helperPhone || null}, helper_email = ${helperEmail || null}
         WHERE id = ${eventId}
         RETURNING id
       `
