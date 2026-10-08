@@ -221,7 +221,11 @@ function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, 
 }
 
 function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEvent[]) {
-  const marySupport = helpNeededEvents.filter((event) => event.forWho === 'Mary' || event.isCalculatedCoverage || event.helpNeeded === 'Spend time with Mary').map((event) => event.helpNeeded === 'Spend time with Mary' ? { ...event, title: 'Spend time with Mary', forWho: 'Mary' as const } : event)
+  const marySupport = helpNeededEvents
+    .filter((event) => event.forWho === 'Mary' || event.isCalculatedCoverage || event.helpNeeded === 'Spend time with Mary')
+    .map((event) => event.helpNeeded === 'Spend time with Mary' && event.forWho !== 'Mary'
+      ? { ...event, title: 'Spend time with Mary', forWho: 'Mary' as const }
+      : event)
   return [
     ...marySupport,
     ...events.filter((event) => event.proposalType === 'food' && (event.helper || event.requestPending)),
@@ -287,9 +291,7 @@ function App() {
   const [showGoFundMe, setShowGoFundMe] = useState(false)
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const calculatedHelpNeeded = applyCareTeamAssignments(buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates), careTeam)
-  const calculatedHelpIds = new Set(calculatedHelpNeeded.map((event) => event.id))
-  const supportCommitments = applyCareTeamAssignments(teamEvents.filter((event) => !event.proposalType && !isNoSupport(event.helpNeeded) && !calculatedHelpIds.has(event.id)), careTeam)
-  const supportFeedEvents = [...calculatedHelpNeeded, ...supportCommitments]
+  const supportFeedEvents = calculatedHelpNeeded
   const helpFeedEvents = supportFeedEvents.filter((event) => !event.helper && !event.requestPending)
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
   const visibleEvents = (view === 'help' ? helpFeedEvents : teamEvents)
