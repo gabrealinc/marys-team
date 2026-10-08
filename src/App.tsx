@@ -245,6 +245,7 @@ function App() {
   const [cloudError, setCloudError] = useState('')
   const [signupEvent, setSignupEvent] = useState<TeamEvent | null>(null)
   const [viewingEvent, setViewingEvent] = useState<TeamEvent | null>(null)
+  const [assigningEvent, setAssigningEvent] = useState<TeamEvent | null>(null)
   const [editingEvent, setEditingEvent] = useState<TeamEvent | null>(null)
   const [showAvailability, setShowAvailability] = useState(false)
   const [showPlanRequest, setShowPlanRequest] = useState<PlanType | null>(null)
@@ -537,6 +538,17 @@ function App() {
       setMessage(error instanceof Error ? error.message : 'We could not update this item. Please try again.')
     }
   }
+  async function assignCalculatedCoverage(event: TeamEvent, contact: DriverContact) {
+    try {
+      await apiRequest({ action: 'assignCoverage', eventId: event.id, helper: contact.name, helperPhone: contact.phone, helperEmail: contact.email })
+      setAssigningEvent(null)
+      await refreshData()
+      setMessage(`${contact.name} was added to this time.`)
+      window.setTimeout(() => setMessage(''), 5000)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not add this person. Please try again.')
+    }
+  }
   async function removeEvent(eventId: string) {
     try {
       await apiRequest({ action: 'deleteEvent', eventId })
@@ -628,7 +640,8 @@ function App() {
       <footer><HeartHandshake aria-hidden="true" /><p><strong>Thank you for being part of Mary’s Team.</strong><br />Questions? Call or text Gabby.</p></footer>
       {message && <div className="toast" role="status"><Check aria-hidden="true" /> {message}</div>}
       {signupEvent && <SignupModal event={signupEvent} onClose={() => setSignupEvent(null)} onSave={saveHelper} />}
-      {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} />}
+      {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} onAssign={() => { setViewingEvent(null); setAssigningEvent(viewingEvent) }} />}
+      {assigningEvent && <AssignCoverageModal event={assigningEvent} contacts={knownContacts(teamEvents, availability)} onClose={() => setAssigningEvent(null)} onAssign={(contact) => assignCalculatedCoverage(assigningEvent, contact)} />}
       {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
       {showPlanRequest && <PlanRequestModal type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
@@ -758,7 +771,7 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   }, [onClose])
   return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button><h2 id="modal-title">{title}</h2>{children}</section></div>
 }
-function EventDetailsModal({ event, organizer, availability, onClose, onEdit }: { event: TeamEvent; organizer: boolean; availability: Availability[]; onClose: () => void; onEdit: () => void }) {
+function EventDetailsModal({ event, organizer, availability, onClose, onEdit, onAssign }: { event: TeamEvent; organizer: boolean; availability: Availability[]; onClose: () => void; onEdit: () => void; onAssign: () => void }) {
   return <ModalShell title={eventDisplayTitle(event)} onClose={onClose}>
     <div className="event-detail-summary">
       <div><small>When</small><strong>{event.dayLabel}<br />{eventTimeRangeLabel(event)}</strong></div>
@@ -770,8 +783,14 @@ function EventDetailsModal({ event, organizer, availability, onClose, onEdit }: 
       {organizer && !event.helper && availability.length > 0 && <div><small>People who may be available</small><div className="compact-contact-list">{availability.slice(0, 8).map((entry) => <span key={entry.id}><strong>{entry.name}</strong><small>{event.isFlexible ? `${availabilityDayLabel(entry.day)}, ${availabilityTimeLabel(entry.time)}` : availabilityTimeLabel(entry.time)}</small><a href={`sms:${entry.phone}`}>Text {entry.phone}</a></span>)}</div></div>}
     </div>
     {event.isCalculatedCoverage && organizer && <p className="form-note">This time is calculated from the family schedules. Edit the individual family members’ work or away entries to change it.</p>}
-    <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && !event.isCalculatedCoverage && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
+    <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && event.isCalculatedCoverage && !event.helper && <button className="primary-button" type="button" onClick={onAssign}><Users aria-hidden="true" /> Assign someone</button>}{organizer && !event.isCalculatedCoverage && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
   </ModalShell>
+}
+
+function AssignCoverageModal({ event, contacts, onClose, onAssign }: { event: TeamEvent; contacts: DriverContact[]; onClose: () => void; onAssign: (contact: DriverContact) => void }) {
+  const [selected, setSelected] = useState('')
+  const contact = contacts.find((item) => item.name === selected)
+  return <ModalShell title="Assign someone" onClose={onClose}><p className="modal-intro">Choose someone already known to Mary’s Team for {event.dayLabel}, {eventTimeRangeLabel(event)}.</p><form onSubmit={(submitEvent) => { submitEvent.preventDefault(); if (contact) onAssign(contact) }}><label htmlFor="coverage-helper">Who will be with Mary?</label><select id="coverage-helper" value={selected} onChange={(changeEvent) => setSelected(changeEvent.target.value)} required autoFocus><option value="">Choose a person</option>{contacts.map((item) => <option key={`${item.name}-${item.phone}`} value={item.name}>{item.name}</option>)}</select>{!contacts.length && <p className="field-error">No saved contacts are available yet.</p>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!contact}><Check aria-hidden="true" /> Add to this time</button></div></form></ModalShell>
 }
 function OrganizerPanel({ requests, events, foodSettings, visitSettings, familyInTown, familyInTownDates, onSaveFoodSettings, onSaveVisitSettings, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; foodSettings: FoodSettings; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
   const [tab, setTab] = useState<'requests' | 'people' | 'work'>('requests')

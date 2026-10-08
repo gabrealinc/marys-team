@@ -999,6 +999,23 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(201).json({ events: savedRows.flat(), driverEmailSent: driverNotifications.length ? driverNotifications.every(Boolean) : null })
     }
 
+    if (action === 'assignCoverage') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to assign someone.')
+      const eventId = clean(request.body?.eventId, 100)
+      const helper = clean(request.body?.helper, 120)
+      const helperPhone = clean(request.body?.helperPhone, 40)
+      const helperEmail = clean(request.body?.helperEmail, 200).toLocaleLowerCase()
+      if (!eventId || !helper) return sendError(response, 400, 'Choose someone to add to this time.')
+      const rows = await sql`
+        UPDATE team_events
+        SET helper = ${helper}, helper_phone = ${helperPhone || null}, helper_email = ${helperEmail || null}, updated_at = NOW()
+        WHERE id = ${eventId}
+        RETURNING id
+      `
+      if (!rows.length) return sendError(response, 404, 'This schedule item is no longer available.')
+      return response.status(200).json({ saved: true })
+    }
+
     if (action === 'updateEvent') {
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const event = parseEventInput(request.body?.event as Partial<TeamEventInput> | undefined)
