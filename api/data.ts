@@ -179,6 +179,15 @@ async function ensureSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS support_contacts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL,
+      email TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS one_pending_request_per_event ON support_requests(event_id) WHERE status = 'pending'`
   await sql`
     CREATE TABLE IF NOT EXISTS notification_log (
@@ -738,7 +747,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const familyInTownDates: FamilyInTownDates = { Stu: parseDates(foodRowsSettings[0]?.stuInTownDates), Gabby: parseDates(foodRowsSettings[0]?.gabbyInTownDates), Spencer: parseDates(foodRowsSettings[0]?.spencerInTownDates) }
       const careRows = await sql`SELECT id, name, phone, email, role, weekdays, start_time AS "startTime", end_time AS "endTime", auto_assign AS "autoAssign" FROM care_team ORDER BY name ASC`
       const careTeam = careRows.map((row) => ({ ...row, weekdays: String(row.weekdays || '').split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6), phone: isOrganizer ? row.phone : '', email: isOrganizer ? row.email : '' })) as CareTeamMember[]
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam })
+      const supportContacts = isOrganizer ? await sql`SELECT id, name, phone, email FROM support_contacts ORDER BY created_at DESC` : []
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam, supportContacts })
     }
 
     if (request.method !== 'POST') {
@@ -1051,6 +1061,21 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, phone = EXCLUDED.phone, email = EXCLUDED.email, role = EXCLUDED.role, weekdays = EXCLUDED.weekdays, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, auto_assign = EXCLUDED.auto_assign
       `
       return response.status(200).json({ member: { id, name, phone, email, role, weekdays, startTime, endTime, autoAssign } })
+    }
+
+    if (action === 'addSupportContact') {
+      const name = clean(request.body?.name, 120)
+      const phone = clean(request.body?.phone, 40)
+      const email = clean(request.body?.email, 200).toLocaleLowerCase()
+      if (!name || !phone || !/^\S+@\S+\.\S+$/.test(email)) return sendError(response, 400, 'Please enter your name, phone number, and email address.')
+      const existing = await sql`SELECT id FROM support_contacts WHERE LOWER(email) = ${email} OR phone = ${phone} ORDER BY created_at DESC LIMIT 1`
+      const id = existing[0]?.id || randomUUID()
+      if (existing.length) {
+        await sql`UPDATE support_contacts SET name = ${name}, phone = ${phone}, email = ${email} WHERE id = ${id}`
+      } else {
+        await sql`INSERT INTO support_contacts (id, name, phone, email) VALUES (${id}, ${name}, ${phone}, ${email})`
+      }
+      return response.status(201).json({ contact: { id, name, phone, email } })
     }
 
     if (action === 'updateEvent') {

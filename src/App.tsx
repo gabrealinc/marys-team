@@ -18,6 +18,7 @@ type VisitSettings = { startTime: string; endTime: string }
 type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
 type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
 type CareTeamMember = { id: string; name: string; phone: string; email: string; role: 'Nurse' | 'Helper'; weekdays: number[]; startTime: string; endTime: string; autoAssign: boolean }
+type SupportContact = { id: string; name: string; phone: string; email: string }
 
 const availabilityTimes = [
   { value: 'morning', label: 'Morning (8 AM – noon)' },
@@ -150,15 +151,16 @@ function confirmedContacts(events: TeamEvent[]) {
   return events.filter((event) => event.helper).map((event) => ({ name: event.helper || '', phone: event.helperPhone || '', email: event.helperEmail || '' })).filter((contact, index, contacts) => contacts.findIndex((item) => item.name.trim().toLocaleLowerCase() === contact.name.trim().toLocaleLowerCase()) === index).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-function knownContacts(events: TeamEvent[], availability: Availability[]) {
+function knownContacts(events: TeamEvent[], availability: Availability[], extraContacts: DriverContact[] = []) {
   const contacts = [...confirmedContacts(events)]
-  for (const entry of availability) {
+  for (const entry of [...availability.map(({ name, phone }) => ({ name, phone, email: '' })), ...extraContacts]) {
     const existing = contacts.find((contact) => phoneKey(contact.phone) && phoneKey(contact.phone) === phoneKey(entry.phone))
       || contacts.find((contact) => contact.name.trim().toLocaleLowerCase() === entry.name.trim().toLocaleLowerCase())
     if (existing) {
       if (!existing.phone) existing.phone = entry.phone
+      if (!existing.email) existing.email = entry.email
     } else {
-      contacts.push({ name: entry.name, phone: entry.phone, email: '' })
+      contacts.push({ name: entry.name, phone: entry.phone, email: entry.email })
     }
   }
   return contacts.sort((a, b) => a.name.localeCompare(b.name))
@@ -219,8 +221,9 @@ function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, 
 }
 
 function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEvent[]) {
+  const marySupport = helpNeededEvents.filter((event) => event.forWho === 'Mary' || event.isCalculatedCoverage || event.helpNeeded === 'Spend time with Mary').map((event) => event.helpNeeded === 'Spend time with Mary' ? { ...event, title: 'Spend time with Mary', forWho: 'Mary' as const } : event)
   return [
-    ...helpNeededEvents,
+    ...marySupport,
     ...events.filter((event) => event.proposalType === 'food' && (event.helper || event.requestPending)),
     ...events.filter((event) => event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && !event.isFlexible),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
@@ -279,6 +282,9 @@ function App() {
   const [familyInTownDates, setFamilyInTownDates] = useState<FamilyInTownDates>({ Stu: [], Gabby: [], Spencer: [] })
   const [foodReservedDates, setFoodReservedDates] = useState<string[]>([])
   const [careTeam, setCareTeam] = useState<CareTeamMember[]>([])
+  const [supportContacts, setSupportContacts] = useState<SupportContact[]>([])
+  const [showSupportContact, setShowSupportContact] = useState(false)
+  const [showGoFundMe, setShowGoFundMe] = useState(false)
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const calculatedHelpNeeded = applyCareTeamAssignments(buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates), careTeam)
   const calculatedHelpIds = new Set(calculatedHelpNeeded.map((event) => event.id))
@@ -308,6 +314,7 @@ function App() {
       setFamilyInTownDates(data.familyInTownDates || { Stu: [], Gabby: [], Spencer: [] })
       setFoodReservedDates(Array.isArray(data.foodReservedDates) ? data.foodReservedDates : [])
       setCareTeam(Array.isArray(data.careTeam) ? data.careTeam : [])
+      setSupportContacts(Array.isArray(data.supportContacts) ? data.supportContacts : [])
       setCloudError('')
     } catch (error) {
       setCloudError(error instanceof Error ? error.message : 'The shared schedule could not be reached.')
@@ -328,6 +335,7 @@ function App() {
       setFamilyInTown(data.familyInTown || { Stu: true, Gabby: true, Spencer: false })
       setFamilyInTownDates(data.familyInTownDates || { Stu: [], Gabby: [], Spencer: [] })
       setCareTeam(Array.isArray(data.careTeam) ? data.careTeam : [])
+      setSupportContacts(Array.isArray(data.supportContacts) ? data.supportContacts : [])
       setCloudError('')
       void apiRequest({ action: 'retryPendingNotifications' }).catch(() => undefined)
       if (data.organizer) await loadPendingRequests()
@@ -575,6 +583,18 @@ function App() {
       return false
     }
   }
+  async function saveSupportContact(contact: Omit<SupportContact, 'id'>) {
+    try {
+      const result = await apiRequest({ action: 'addSupportContact', ...contact })
+      setSupportContacts((items) => [result.contact, ...items.filter((item) => item.id !== result.contact.id)])
+      setShowSupportContact(false)
+      setShowGoFundMe(true)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not add your contact information.')
+      return false
+    }
+  }
   async function removeEvent(eventId: string) {
     try {
       await apiRequest({ action: 'deleteEvent', eventId })
@@ -642,7 +662,7 @@ function App() {
           </div>
         </section>
         <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Choose Help Needed or Bring Food. The page will show exactly what is open.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
-        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} displayEvents={publicScheduleEvents} careTeam={careTeam} foodSettings={foodSettings} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveCareTeam={saveCareTeamMember} onSaveFoodSettings={saveFoodSettings} onSaveVisitSettings={saveVisitSettings} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={setInTownDatesPerson} onEditBusyDates={setBusyPerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
+        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} displayEvents={publicScheduleEvents} careTeam={careTeam} supportContacts={supportContacts} foodSettings={foodSettings} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveCareTeam={saveCareTeamMember} onSaveFoodSettings={saveFoodSettings} onSaveVisitSettings={saveVisitSettings} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={setInTownDatesPerson} onEditBusyDates={setBusyPerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
@@ -650,7 +670,7 @@ function App() {
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
             <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
-          <p className="schedule-view-note">{view === 'help' ? 'See what is open, requested, or confirmed and who is signed up.' : view === 'upcoming' ? 'The next 10 days, starting today.' : 'See the whole month at a glance. Tap any date to see its details.'}</p>
+          <p className="schedule-view-note">{view === 'help' ? 'Only times that are still open and need support.' : view === 'upcoming' ? 'Mary’s appointments, food drop-offs, and coverage for the next 10 days.' : 'Mary’s full month at a glance. Tap any date to see appointments, food drop-offs, and coverage.'}</p>
           {!loading && (view === 'help' ? <div className="event-list">
             {visibleEvents.length ? visibleEvents.map((event) => {
               const helper = helpers[event.id] || event.helper
@@ -663,8 +683,8 @@ function App() {
                   <button className="edit-event-link" type="button" onClick={(clickEvent) => { clickEvent.stopPropagation(); setViewingEvent(event) }}><Pencil aria-hidden="true" /> {organizer ? 'View or edit details' : 'View details'}</button>
                 </div>
               </article>
-            }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} supportOnly />}
-          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={openScheduleEvent} /></div> : <MonthCalendar events={publicScheduleEvents} helpNeededEvents={supportFeedEvents} onOpen={openScheduleEvent} />)}
+            }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} onJoin={() => setShowSupportContact(true)} supportOnly />}
+          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={openScheduleEvent} /></div> : <MonthCalendar events={publicScheduleEvents} onOpen={openScheduleEvent} />)}
         </section>
         {organizer && <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">Availability</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add availability</button></div>
@@ -676,7 +696,7 @@ function App() {
       {message && <div className="toast" role="status"><Check aria-hidden="true" /> {message}</div>}
       {signupEvent && <SignupModal event={signupEvent} onClose={() => setSignupEvent(null)} onSave={saveHelper} />}
       {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} onAssign={() => { setViewingEvent(null); setAssigningEvent(viewingEvent) }} />}
-      {assigningEvent && <AssignCoverageModal event={assigningEvent} contacts={knownContacts(teamEvents, availability)} onClose={() => setAssigningEvent(null)} onAssign={(contact) => assignCalculatedCoverage(assigningEvent, contact)} />}
+      {assigningEvent && <AssignCoverageModal event={assigningEvent} contacts={knownContacts(teamEvents, availability, [...careTeam.map((member) => ({ name: member.name, phone: member.phone, email: member.email })), ...supportContacts.map((contact) => ({ name: contact.name, phone: contact.phone, email: contact.email }))])} onClose={() => setAssigningEvent(null)} onAssign={(contact) => assignCalculatedCoverage(assigningEvent, contact)} />}
       {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
       {showPlanRequest && <PlanRequestModal type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
@@ -685,6 +705,8 @@ function App() {
       {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} onClose={() => setBusyPerson(null)} onSave={(dates, startTime, endTime) => saveFamilyBusyDates(busyPerson, dates, startTime, endTime)} />}
       {inTownDatesPerson && <FamilyInTownDatesModal person={inTownDatesPerson} selectedDates={familyInTownDates[inTownDatesPerson]} onClose={() => setInTownDatesPerson(null)} onSave={(dates) => saveFamilyInTownDates(inTownDatesPerson, dates)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showSupportContact && <SupportContactModal onClose={() => setShowSupportContact(false)} onSave={saveSupportContact} />}
+      {showGoFundMe && <GoFundMeModal onClose={() => setShowGoFundMe(false)} />}
       {approvalRequest && <ApprovalModal request={approvalRequest} onClose={() => setApprovalRequest(null)} onDecide={decideApprovalRequest} />}
       {showOrganizerLogin && <OrganizerLoginModal onClose={() => setShowOrganizerLogin(false)} onLogin={organizerLogin} />}
     </div>
@@ -707,8 +729,8 @@ function getThirtyDays() {
   })
 }
 
-function EmptySchedule({ onAdd, supportOnly = false }: { onAdd: () => void; supportOnly?: boolean }) {
-  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No open support is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'This is good news. Check This Month to see the full family schedule.' : 'Mary or Stu can add the first appointment or task.'}</p>{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
+function EmptySchedule({ onAdd, onJoin, supportOnly = false }: { onAdd: () => void; onJoin?: () => void; supportOnly?: boolean }) {
+  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No help is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'Everything is covered. Add your contact information so the family knows you are open to helping if something comes up. We greatly appreciate it.' : 'Mary or Stu can add the first appointment or task.'}</p>{supportOnly && onJoin && <button className="primary-button" type="button" onClick={onJoin}>Let us know you are open to helping</button>}{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
 }
 
 function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[]; daysToShow: number; onOpen: (event: TeamEvent) => void }) {
@@ -719,12 +741,10 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
     date.setDate(today.getDate() + index)
     const dateKey = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`
     const dayEvents = events.filter((event) => !event.isFlexible && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time))
-    const supportEvents = dayEvents.filter((event) => !event.publicAction && !event.proposalType && !isNoSupport(event.helpNeeded))
-    const urgentEvents = supportEvents.filter((event) => !event.helper && !event.requestPending)
     return {
       date,
       dateKey,
-      events: urgentEvents.length ? supportEvents : dayEvents,
+      events: dayEvents,
     }
   })
 
@@ -750,7 +770,7 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
   </div>
 }
 
-function MonthCalendar({ events, helpNeededEvents, onOpen }: { events: TeamEvent[]; helpNeededEvents: TeamEvent[]; onOpen: (event: TeamEvent) => void }) {
+function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event: TeamEvent) => void }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const [monthDate, setMonthDate] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1))
@@ -783,12 +803,12 @@ function MonthCalendar({ events, helpNeededEvents, onOpen }: { events: TeamEvent
       <div className="month-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="month-grid">{days.map((day) => {
         const label = day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-        const openHelp = helpNeededEvents.some((event) => event.date.startsWith(day.dateKey) && !event.helper && !event.requestPending)
+        const openHelp = day.events.some((event) => !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending)
         const busyCount = day.events.filter((event) => !event.proposalType && !event.publicAction && isNoSupport(event.helpNeeded)).length
         const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
         return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', not available'}`}>
           <span className="month-number">{day.date.getDate()}</span>
-          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{busyCount > 0 && <span className="month-status appointment">Busy</span>}{foodCovered && <span className="month-status food">Food Covered</span>}{!day.events.length && <span className="month-status appointment">Not available</span>}</span>
+          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{busyCount > 0 && <span className="month-status appointment">{busyCount} {busyCount === 1 ? 'Appointment' : 'Appointments'}</span>}{foodCovered && <span className="month-status food">Food Covered</span>}{!day.events.length && <span className="month-status appointment">Not available</span>}</span>
         </button>
       })}</div>
     </div>
@@ -806,6 +826,47 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
   }, [onClose])
   return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button><h2 id="modal-title">{title}</h2>{children}</section></div>
 }
+
+function SupportContactModal({ onClose, onSave }: { onClose: () => void; onSave: (contact: Omit<SupportContact, 'id'>) => Promise<boolean> }) {
+  const [saved] = useState(savedHelperContact)
+  const [name, setName] = useState(saved.name)
+  const [phone, setPhone] = useState(saved.phone)
+  const [email, setEmail] = useState(saved.email)
+  const [saving, setSaving] = useState(false)
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (saving || !name.trim() || !phone.trim() || !email.trim()) return
+    setSaving(true)
+    const contact = { name: name.trim(), phone: phone.trim(), email: email.trim() }
+    const didSave = await onSave(contact)
+    if (didSave) window.localStorage.setItem('marys-team-helper-contact', JSON.stringify(contact))
+    if (!didSave) setSaving(false)
+  }
+
+  return <ModalShell title="Stay on our contact list" onClose={onClose}>
+    <p className="modal-intro">Everything is covered right now. Share your information so the family knows they can call you if something comes up.</p>
+    <form onSubmit={submit}>
+      <label htmlFor="support-contact-name">Your name</label>
+      <input id="support-contact-name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" autoFocus required />
+      <label htmlFor="support-contact-phone">Your phone number</label>
+      <input id="support-contact-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" required />
+      <label htmlFor="support-contact-email">Your email address</label>
+      <input id="support-contact-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+      <p className="form-note">This information is only visible to the family in Edit &amp; Approve.</p>
+      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving}>{saving ? 'Adding you…' : 'Add me to the contact list'}</button></div>
+    </form>
+  </ModalShell>
+}
+
+function GoFundMeModal({ onClose }: { onClose: () => void }) {
+  return <ModalShell title="Thank you for being part of Mary’s Team" onClose={onClose}>
+    <p className="modal-intro">Your contact information was added. If you would like another way to support Mary and the family, you can visit Mary’s GoFundMe.</p>
+    <a className="primary-button full-button" href="https://www.gofundme.com/f/support-mary-greenberg?utm_source=ig&amp;utm_medium=social&amp;utm_content=link_in_bio&amp;utm_id=97760_v0_s00_e0_tv3" target="_blank" rel="noreferrer">Visit Mary’s GoFundMe</a>
+    <button className="text-button full-button" type="button" onClick={onClose}>Not now</button>
+  </ModalShell>
+}
+
 function EventDetailsModal({ event, organizer, availability, onClose, onEdit, onAssign }: { event: TeamEvent; organizer: boolean; availability: Availability[]; onClose: () => void; onEdit: () => void; onAssign: () => void }) {
   return <ModalShell title={eventDisplayTitle(event)} onClose={onClose}>
     <div className="event-detail-summary">
@@ -828,13 +889,14 @@ function AssignCoverageModal({ event, contacts, onClose, onAssign }: { event: Te
   const contact = selected === 'new' ? newContact : contacts.find((item) => item.name === selected)
   return <ModalShell title="Assign someone" onClose={onClose}><p className="modal-intro">Choose a saved person or add someone new for {event.dayLabel}, {eventTimeRangeLabel(event)}.</p><form onSubmit={(submitEvent) => { submitEvent.preventDefault(); if (contact?.name.trim()) onAssign({ ...contact, name: contact.name.trim(), phone: contact.phone.trim(), email: contact.email.trim() }) }}><label htmlFor="coverage-helper">Who will be with Mary?</label><select id="coverage-helper" value={selected} onChange={(changeEvent) => setSelected(changeEvent.target.value)} required autoFocus><option value="">Choose a person</option>{contacts.map((item) => <option key={`${item.name}-${item.phone}`} value={item.name}>{item.name}</option>)}<option value="new">Someone new</option></select>{selected === 'new' && <><label htmlFor="new-helper-name">Name</label><input id="new-helper-name" value={newContact.name} onChange={(changeEvent) => setNewContact({ ...newContact, name: changeEvent.target.value })} required autoFocus /><div className="field-row"><div><label htmlFor="new-helper-phone">Phone <span>(optional)</span></label><input id="new-helper-phone" type="tel" value={newContact.phone} onChange={(changeEvent) => setNewContact({ ...newContact, phone: changeEvent.target.value })} autoComplete="tel" /></div><div><label htmlFor="new-helper-email">Email <span>(optional)</span></label><input id="new-helper-email" type="email" value={newContact.email} onChange={(changeEvent) => setNewContact({ ...newContact, email: changeEvent.target.value })} autoComplete="email" /></div></div></>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!contact?.name.trim()}><Check aria-hidden="true" /> Add to this time</button></div></form></ModalShell>
 }
-function OrganizerPanel({ requests, events, displayEvents, careTeam, foodSettings, visitSettings, familyInTown, familyInTownDates, onSaveCareTeam, onSaveFoodSettings, onSaveVisitSettings, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; displayEvents: TeamEvent[]; careTeam: CareTeamMember[]; foodSettings: FoodSettings; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveCareTeam: (member: CareTeamMember) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
+function OrganizerPanel({ requests, events, displayEvents, careTeam, supportContacts, foodSettings, visitSettings, familyInTown, familyInTownDates, onSaveCareTeam, onSaveFoodSettings, onSaveVisitSettings, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; displayEvents: TeamEvent[]; careTeam: CareTeamMember[]; supportContacts: SupportContact[]; foodSettings: FoodSettings; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveCareTeam: (member: CareTeamMember) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
   const [tab, setTab] = useState<'requests' | 'people' | 'work'>('requests')
   const [declining, setDeclining] = useState<PendingRequest | null>(null)
   const [editingMember, setEditingMember] = useState<CareTeamMember | null>(null)
-  const people = knownContacts(displayEvents, careTeam.map((member) => ({ id: member.id, name: member.name, phone: member.phone, day: '', time: '', note: member.role }))).map((contact) => {
+  const people = knownContacts(displayEvents, [...careTeam.map((member) => ({ id: member.id, name: member.name, phone: member.phone, day: '', time: '', note: member.role })), ...supportContacts.map((contact) => ({ id: contact.id, name: contact.name, phone: contact.phone, day: '', time: '', note: 'Open to helping' }))]).map((contact) => {
     const member = careTeam.find((item) => item.name.trim().toLocaleLowerCase() === contact.name.trim().toLocaleLowerCase())
-    return { ...contact, name: member ? `${contact.name} · ${member.role}` : contact.name, member, events: displayEvents.filter((event) => event.helper?.trim().toLocaleLowerCase() === contact.name.trim().toLocaleLowerCase()).sort((a, b) => a.date.localeCompare(b.date)) }
+    const volunteer = supportContacts.find((item) => item.name.trim().toLocaleLowerCase() === contact.name.trim().toLocaleLowerCase())
+    return { ...contact, email: contact.email || volunteer?.email || '', name: member ? `${contact.name} · ${member.role}` : volunteer ? `${contact.name} · Open to helping` : contact.name, member, events: displayEvents.filter((event) => event.helper?.trim().toLocaleLowerCase() === contact.name.trim().toLocaleLowerCase()).sort((a, b) => a.date.localeCompare(b.date)) }
   })
   return <section className="organizer-panel" id="organizer-panel" aria-labelledby="organizer-title">
     <div className="organizer-heading"><div><p className="eyebrow">Private family area</p><h2 id="organizer-title">Edit &amp; Approve</h2></div><button className="text-button" type="button" onClick={onLogout}>Close private access</button></div>
