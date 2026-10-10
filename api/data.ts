@@ -747,7 +747,22 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const familyInTownDates: FamilyInTownDates = { Stu: parseDates(foodRowsSettings[0]?.stuInTownDates), Gabby: parseDates(foodRowsSettings[0]?.gabbyInTownDates), Spencer: parseDates(foodRowsSettings[0]?.spencerInTownDates) }
       const careRows = await sql`SELECT id, name, phone, email, role, weekdays, start_time AS "startTime", end_time AS "endTime", auto_assign AS "autoAssign" FROM care_team ORDER BY name ASC`
       const careTeam = careRows.map((row) => ({ ...row, weekdays: String(row.weekdays || '').split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6), phone: isOrganizer ? row.phone : '', email: isOrganizer ? row.email : '' })) as CareTeamMember[]
-      const supportContacts = isOrganizer ? await sql`SELECT id, name, phone, email FROM support_contacts ORDER BY created_at DESC` : []
+      const savedSupportContacts = isOrganizer ? await sql`SELECT id, name, phone, email, 'contact_list' AS source, created_at AS "createdAt" FROM support_contacts ORDER BY created_at DESC` : []
+      const requestContacts = isOrganizer ? await sql`
+        SELECT DISTINCT ON (LOWER(requester_email), requester_phone)
+          id, requester_name AS name, requester_phone AS phone, requester_email AS email,
+          'request' AS source, created_at AS "createdAt"
+        FROM support_requests
+        WHERE TRIM(requester_name) <> '' AND (TRIM(requester_phone) <> '' OR TRIM(requester_email) <> '')
+        ORDER BY LOWER(requester_email), requester_phone, created_at DESC
+      ` : []
+      const supportContacts = [...savedSupportContacts, ...requestContacts]
+        .filter((contact, index, contacts) => contacts.findIndex((item) => {
+          const emailMatches = String(contact.email || '').trim() && String(item.email || '').trim().toLocaleLowerCase() === String(contact.email || '').trim().toLocaleLowerCase()
+          const phoneMatches = String(contact.phone || '').replace(/\D/g, '') && String(item.phone || '').replace(/\D/g, '') === String(contact.phone || '').replace(/\D/g, '')
+          return Boolean(emailMatches || phoneMatches)
+        }) === index)
+        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
       return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam, supportContacts })
     }
 
