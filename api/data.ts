@@ -510,6 +510,23 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }, [event.helperEmail])
     }
 
+    async function notifyAssignmentRemoved(previous: Record<string, unknown>, event: ReturnType<typeof parseEventInput>) {
+      const email = String(previous.helperEmail || '').trim().toLocaleLowerCase()
+      if (!email) return false
+      const name = String(previous.helper || '').trim()
+      return notifyOnce(`assignment-removed:${event.id}:${email}:${event.date}:${event.time}:${event.endTime}`, {
+        subject: "Mary's Team: Mary's schedule has changed",
+        heading: "Mary's schedule has changed",
+        intro: `${name ? `${name}, ` : ''}Mary no longer needs help at the scheduled time below. Thank you so much for your support. We will reach out when new times for help become available. If you would still like to help, please share Mary’s GoFundMe with friends and family.`,
+        rows: [
+          { label: 'Schedule item', value: event.title },
+          { label: 'When', value: event.isFlexible ? 'Anytime' : `${event.dayLabel} from ${readableTime(event.time)} to ${readableTime(event.endTime)}` },
+        ],
+        actionUrl: 'https://www.gofundme.com/f/support-mary-greenberg?cp_src=d',
+        actionLabel: "Share Mary's GoFundMe",
+      }, [email])
+    }
+
     async function approveSupportRequest(supportRequest: Record<string, unknown>) {
       if (supportRequest.proposalType === 'food') {
         const week = calendarWeekRange(String(supportRequest.date))
@@ -1157,9 +1174,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }
       if (isNoSupport(event.helpNeeded)) await sql`UPDATE support_requests SET status = 'declined', decided_at = NOW() WHERE event_id = ${event.id} AND status = 'pending'`
       if (event.helper) await sql`UPDATE support_requests SET status = 'declined', decided_at = NOW() WHERE event_id = ${event.id} AND status = 'pending'`
+      const previousHelperEmail = String(previous?.helperEmail || '').trim().toLocaleLowerCase()
+      const currentHelperEmail = String(event.helperEmail || '').trim().toLocaleLowerCase()
+      const removalEmailSent = previousHelperEmail && previousHelperEmail !== currentHelperEmail
+        ? await notifyAssignmentRemoved(previous as Record<string, unknown>, event)
+        : null
       const shouldNotifyDriver = Boolean(event.helperEmail) && String(previous?.helperEmail || '').toLocaleLowerCase() !== event.helperEmail
       const driverEmailSent = shouldNotifyDriver ? await notifyAssignedDriver(event) : null
-      return response.status(200).json({ event: rows[0], driverEmailSent })
+      return response.status(200).json({ event: rows[0], driverEmailSent, removalEmailSent })
     }
 
     if (action === 'deleteEvent') {
