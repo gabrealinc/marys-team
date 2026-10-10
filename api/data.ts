@@ -1097,8 +1097,42 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!isOrganizer) return sendError(response, 401, 'Mary or Stu must open Organizer access before changing the schedule.')
       const event = parseEventInput(request.body?.event as Partial<TeamEventInput> | undefined)
       if (!eventIsValid(event)) return sendError(response, 400, 'Please complete the required schedule details, including an ending time.')
-      const previousRows = await sql`SELECT event_date AS date, schedule_source AS "scheduleSource", helper_email AS "helperEmail" FROM team_events WHERE id = ${event.id}`
+      const previousRows = await sql`
+        SELECT event_date AS date, schedule_source AS "scheduleSource", helper,
+          helper_phone AS "helperPhone", helper_email AS "helperEmail"
+        FROM team_events
+        WHERE id = ${event.id}
+      `
       const previous = previousRows[0]
+      const saveContact = async (name: unknown, phone: unknown, email: unknown) => {
+        const contactName = clean(name, 120)
+        const contactPhone = clean(phone, 40)
+        const contactEmail = clean(email, 200).toLocaleLowerCase()
+        if (!contactName || (!contactPhone && !contactEmail)) return
+        const existing = await sql`
+          SELECT id FROM support_contacts
+          WHERE (${contactEmail} <> '' AND LOWER(email) = ${contactEmail})
+             OR (${contactPhone} <> '' AND phone = ${contactPhone})
+          ORDER BY created_at DESC
+          LIMIT 1
+        `
+        if (existing.length) {
+          await sql`
+            UPDATE support_contacts
+            SET name = ${contactName},
+              phone = CASE WHEN ${contactPhone} <> '' THEN ${contactPhone} ELSE phone END,
+              email = CASE WHEN ${contactEmail} <> '' THEN ${contactEmail} ELSE email END
+            WHERE id = ${String(existing[0].id)}
+          `
+        } else {
+          await sql`
+            INSERT INTO support_contacts (id, name, phone, email)
+            VALUES (${randomUUID()}, ${contactName}, ${contactPhone}, ${contactEmail})
+          `
+        }
+      }
+      await saveContact(previous?.helper, previous?.helperPhone, previous?.helperEmail)
+      await saveContact(event.helper, event.helperPhone, event.helperEmail)
       const rows = await sql`
         UPDATE team_events
         SET category = ${event.category}, event_date = ${event.date}, day_label = ${event.dayLabel},
