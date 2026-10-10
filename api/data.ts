@@ -456,7 +456,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return emailSent
     }
 
-    async function notifySupportDecision(supportRequest: Record<string, unknown>, decision: 'approve' | 'decline', declineReason = '') {
+    async function notifySupportDecision(supportRequest: Record<string, unknown>, decision: 'approve' | 'decline', _declineReason = '') {
       const email = String(supportRequest.requesterEmail || '')
       if (!email) return false
       const approved = decision === 'approve'
@@ -466,23 +466,34 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const approvedLocation = savedLocation.toLocaleLowerCase() === 'home'
         ? String(process.env.HOME_ADDRESS || 'Mary and Stu’s home')
         : savedLocation
+      if (!approved) {
+        const name = String(supportRequest.requesterName || '').trim()
+        return notifyOnce(`decision:${String(supportRequest.id)}:${decision}`, {
+          subject: "Mary's Team: Mary's schedule has changed",
+          heading: "Mary's schedule has changed",
+          intro: `${name ? `${name}, ` : ''}Mary no longer needs help at the scheduled time below. Thank you so much for your support. We will reach out when new times for help become available. If you would still like to help, please share Mary’s GoFundMe with friends and family.`,
+          rows: [
+            { label: 'Schedule item', value: String(supportRequest.title) },
+            { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.requestStartTime || supportRequest.time))} to ${readableTime(String(supportRequest.requestEndTime || supportRequest.endTime))}` },
+          ],
+          actionUrl: 'https://www.gofundme.com/f/support-mary-greenberg?cp_src=d',
+          actionLabel: "Share Mary's GoFundMe",
+        }, [email])
+      }
       return notifyOnce(`decision:${String(supportRequest.id)}:${decision}`, {
-        subject: `Mary's Team: your request was ${approved ? 'approved' : 'not confirmed'}`,
-        heading: approved ? 'You are confirmed' : 'Your request was not confirmed',
-        intro: approved
-          ? `Thank you for being part of Mary’s Team. Mary or Stu approved your ${isPlan ? 'proposed plan' : 'request'}.`
-          : `Mary or Stu could not confirm this ${isPlan ? 'proposed plan' : 'request'}.`,
+        subject: "Mary's Team: your request was approved",
+        heading: 'You are confirmed',
+        intro: `Thank you for being part of Mary’s Team. Mary or Stu approved your ${isPlan ? 'proposed plan' : 'request'}.`,
         rows: [
           { label: 'Schedule item', value: String(supportRequest.title) },
           { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.requestStartTime || supportRequest.time))} to ${readableTime(String(supportRequest.requestEndTime || supportRequest.endTime))}` },
-          ...(approved && approvedLocation ? [{ label: 'Where', value: approvedLocation }] : []),
+          ...(approvedLocation ? [{ label: 'Where', value: approvedLocation }] : []),
           ...(isPlan ? [{ label: 'Details', value: String(supportRequest.details || 'No additional details.') }] : [{ label: 'Support requested', value: String(supportRequest.helpNeeded) }]),
-          ...(!approved && declineReason ? [{ label: 'Reason', value: declineReason }] : []),
           { label: 'Mary', value: 'mary@hcttravel.com' },
           { label: 'Stu', value: 'ancalaeyes@aol.com' },
         ],
-        actionUrl: approved ? `https://marys-team.vercel.app/api/data?calendar=${encodeURIComponent(String(supportRequest.eventId))}` : 'https://marys-team.vercel.app',
-        actionLabel: approved ? 'Add to my calendar' : "Open Mary's Team",
+        actionUrl: `https://marys-team.vercel.app/api/data?calendar=${encodeURIComponent(String(supportRequest.eventId))}`,
+        actionLabel: 'Add to my calendar',
       }, [email])
     }
 
