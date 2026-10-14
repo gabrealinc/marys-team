@@ -14,6 +14,9 @@ type Availability = { id: string; name: string; phone: string; day: string; time
 type ApprovalRequest = { status: string; requesterName: string; requesterPhone: string; requesterEmail: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
 type PendingRequest = { id: string; eventId: string; requesterName: string; requesterPhone: string; requesterEmail: string; notificationSentAt?: string; title: string; dayLabel: string; time: string; endTime: string; requestStartTime?: string; requestEndTime?: string; requestNote?: string; helpNeeded: string; details?: string; proposalType?: PlanType; isFlexible?: boolean }
 type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
+type FoodPreferenceType = 'restaurant' | 'homemade' | 'grocery'
+type FoodPreference = { id: string; type: FoodPreferenceType; name: string; items: string[]; note: string }
+type FoodPreferences = { overview: string; avoid: string; suggestions: FoodPreference[] }
 type VisitSettings = { startTime: string; endTime: string }
 type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
 type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
@@ -38,6 +41,11 @@ const weekdayChoices = [
   { value: 4, label: 'Thursday', short: 'Thu' }, { value: 5, label: 'Friday', short: 'Fri' },
   { value: 6, label: 'Saturday', short: 'Sat' },
 ]
+const defaultFoodPreferences: FoodPreferences = {
+  overview: 'Meals are for two people. We generally enjoy whole foods with a protein, vegetables, and a grain. Chicken is our first choice. Steak or beef is welcome when it fits the dish.',
+  avoid: 'No pork.',
+  suggestions: [{ id: 'mendocino-farms', type: 'restaurant', name: 'Mendocino Farms', items: [''], note: '' }],
+}
 
 function savedHelperContact() {
   try {
@@ -281,6 +289,7 @@ function App() {
   const [showOrganizerLogin, setShowOrganizerLogin] = useState(false)
   const [pendingRequests, setPendingRequests] = useState<PendingRequest[]>([])
   const [foodSettings, setFoodSettings] = useState<FoodSettings>({ weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
+  const [foodPreferences, setFoodPreferences] = useState<FoodPreferences>(defaultFoodPreferences)
   const [visitSettings, setVisitSettings] = useState<VisitSettings>({ startTime: '10:00', endTime: '17:00' })
   const [familyInTown, setFamilyInTown] = useState<FamilyInTown>({ Stu: true, Gabby: true, Spencer: false })
   const [familyInTownDates, setFamilyInTownDates] = useState<FamilyInTownDates>({ Stu: [], Gabby: [], Spencer: [] })
@@ -311,6 +320,7 @@ function App() {
       setAvailability(data.availability)
       setOrganizer(Boolean(data.organizer))
       setFoodSettings(data.foodSettings || { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
+      setFoodPreferences(data.foodPreferences || defaultFoodPreferences)
       setVisitSettings(data.visitSettings || { startTime: '10:00', endTime: '17:00' })
       setFamilyInTown(data.familyInTown || { Stu: true, Gabby: true, Spencer: false })
       setFamilyInTownDates(data.familyInTownDates || { Stu: [], Gabby: [], Spencer: [] })
@@ -333,6 +343,7 @@ function App() {
       setAvailability(data.availability)
       setOrganizer(Boolean(data.organizer))
       setFoodSettings(data.foodSettings || { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' })
+      setFoodPreferences(data.foodPreferences || defaultFoodPreferences)
       setVisitSettings(data.visitSettings || { startTime: '10:00', endTime: '17:00' })
       setFamilyInTown(data.familyInTown || { Stu: true, Gabby: true, Spencer: false })
       setFamilyInTownDates(data.familyInTownDates || { Stu: [], Gabby: [], Spencer: [] })
@@ -403,6 +414,19 @@ function App() {
       return true
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'We could not update food drop-off days.')
+      return false
+    }
+  }
+
+  async function saveFoodPreferences(preferences: FoodPreferences) {
+    try {
+      const result = await apiRequest({ action: 'saveFoodPreferences', ...preferences })
+      setFoodPreferences(result.foodPreferences)
+      setMessage('Food preferences were updated.')
+      window.setTimeout(() => setMessage(''), 5000)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not update food preferences.')
       return false
     }
   }
@@ -664,7 +688,7 @@ function App() {
           </div>
         </section>
         <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Choose Help Needed or Bring Food. The page will show exactly what is open.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
-        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} displayEvents={publicScheduleEvents} careTeam={careTeam} supportContacts={supportContacts} foodSettings={foodSettings} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveCareTeam={saveCareTeamMember} onSaveFoodSettings={saveFoodSettings} onSaveVisitSettings={saveVisitSettings} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={setInTownDatesPerson} onEditBusyDates={setBusyPerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
+        {organizer && <OrganizerPanel requests={pendingRequests} events={teamEvents} displayEvents={publicScheduleEvents} careTeam={careTeam} supportContacts={supportContacts} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveCareTeam={saveCareTeamMember} onSaveFoodSettings={saveFoodSettings} onSaveFoodPreferences={saveFoodPreferences} onSaveVisitSettings={saveVisitSettings} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={setInTownDatesPerson} onEditBusyDates={setBusyPerson} onAddSchedule={(forWho) => { setAddForWho(forWho); setShowAdd(true) }} onEditEvent={setEditingEvent} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
@@ -701,7 +725,7 @@ function App() {
       {assigningEvent && <AssignCoverageModal event={assigningEvent} contacts={knownContacts(teamEvents, availability, [...careTeam.map((member) => ({ name: member.name, phone: member.phone, email: member.email })), ...supportContacts.map((contact) => ({ name: contact.name, phone: contact.phone, email: contact.email }))])} onClose={() => setAssigningEvent(null)} onAssign={(contact) => assignCalculatedCoverage(assigningEvent, contact)} />}
       {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
-      {showPlanRequest && <PlanRequestModal type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
+      {showPlanRequest && <PlanRequestModal type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => (phoneKey(editingAvailability.phone) ? phoneKey(entry.phone) === phoneKey(editingAvailability.phone) : entry.name.trim().toLocaleLowerCase() === editingAvailability.name.trim().toLocaleLowerCase()) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
       {showAdd && <AddEventModal initialForWho={addForWho} availability={availability} events={teamEvents} onClose={() => setShowAdd(false)} onSave={saveEvents} />}
       {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} onClose={() => setBusyPerson(null)} onSave={(dates, startTime, endTime) => saveFamilyBusyDates(busyPerson, dates, startTime, endTime)} />}
@@ -891,7 +915,7 @@ function AssignCoverageModal({ event, contacts, onClose, onAssign }: { event: Te
   const contact = selected === 'new' ? newContact : contacts.find((item) => item.name === selected)
   return <ModalShell title="Assign someone" onClose={onClose}><p className="modal-intro">Choose a saved person or add someone new for {event.dayLabel}, {eventTimeRangeLabel(event)}.</p><form onSubmit={(submitEvent) => { submitEvent.preventDefault(); if (contact?.name.trim()) onAssign({ ...contact, name: contact.name.trim(), phone: contact.phone.trim(), email: contact.email.trim() }) }}><label htmlFor="coverage-helper">Who will be with Mary?</label><select id="coverage-helper" value={selected} onChange={(changeEvent) => setSelected(changeEvent.target.value)} required autoFocus><option value="">Choose a person</option>{contacts.map((item) => <option key={`${item.name}-${item.phone}`} value={item.name}>{item.name}</option>)}<option value="new">Someone new</option></select>{selected === 'new' && <><label htmlFor="new-helper-name">Name</label><input id="new-helper-name" value={newContact.name} onChange={(changeEvent) => setNewContact({ ...newContact, name: changeEvent.target.value })} required autoFocus /><div className="field-row"><div><label htmlFor="new-helper-phone">Phone <span>(optional)</span></label><input id="new-helper-phone" type="tel" value={newContact.phone} onChange={(changeEvent) => setNewContact({ ...newContact, phone: changeEvent.target.value })} autoComplete="tel" /></div><div><label htmlFor="new-helper-email">Email <span>(optional)</span></label><input id="new-helper-email" type="email" value={newContact.email} onChange={(changeEvent) => setNewContact({ ...newContact, email: changeEvent.target.value })} autoComplete="email" /></div></div></>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!contact?.name.trim()}><Check aria-hidden="true" /> Add to this time</button></div></form></ModalShell>
 }
-function OrganizerPanel({ requests, events, displayEvents, careTeam, supportContacts, foodSettings, visitSettings, familyInTown, familyInTownDates, onSaveCareTeam, onSaveFoodSettings, onSaveVisitSettings, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; displayEvents: TeamEvent[]; careTeam: CareTeamMember[]; supportContacts: SupportContact[]; foodSettings: FoodSettings; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveCareTeam: (member: CareTeamMember) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
+function OrganizerPanel({ requests, events, displayEvents, careTeam, supportContacts, foodSettings, foodPreferences, visitSettings, familyInTown, familyInTownDates, onSaveCareTeam, onSaveFoodSettings, onSaveFoodPreferences, onSaveVisitSettings, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAddSchedule, onEditEvent, onDecide, onLogout }: { requests: PendingRequest[]; events: TeamEvent[]; displayEvents: TeamEvent[]; careTeam: CareTeamMember[]; supportContacts: SupportContact[]; foodSettings: FoodSettings; foodPreferences: FoodPreferences; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveCareTeam: (member: CareTeamMember) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
   const [tab, setTab] = useState<'requests' | 'people' | 'work'>('requests')
   const [declining, setDeclining] = useState<PendingRequest | null>(null)
   const [editingMember, setEditingMember] = useState<CareTeamMember | null>(null)
@@ -910,7 +934,7 @@ function OrganizerPanel({ requests, events, displayEvents, careTeam, supportCont
     </div>
     {tab === 'people' && <div className="family-schedule-actions"><button className="primary-button" type="button" onClick={() => setEditingMember({ id: crypto.randomUUID(), name: '', phone: '', email: '', role: 'Helper', weekdays: [1], startTime: '09:00', endTime: '17:00', autoAssign: false })}><Users aria-hidden="true" /> Add nurse or helper</button></div>}
     {tab === 'people' && careTeam.length > 0 && <div className="people-summary"><p className="organizer-intro"><strong>Nurses and helpers</strong><br />Their role and regular hours control automatic coverage.</p>{careTeam.map((member) => <section key={member.id}><div className="people-summary-heading"><div><strong>{member.name}</strong><span className="compact-contact"><span>{member.role}</span><span>{member.weekdays.map((day) => weekdayChoices.find((choice) => choice.value === day)?.short).join(', ')} · {eventTimeLabel(member.startTime)} – {eventTimeLabel(member.endTime)}</span>{member.autoAssign && <span>Automatic assignment on</span>}</span></div><button className="secondary-button" type="button" onClick={() => setEditingMember(member)}><Pencil aria-hidden="true" /> Edit role &amp; hours</button></div></section>)}</div>}
-    {tab === 'requests' ? requests.length ? <><p className="organizer-intro">Review support sign-ups, food drop-offs, and stop-by requests below. Contact information stays inside this private family area.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div><button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div> : tab === 'people' ? <div className="people-summary"><p className="organizer-intro">Saved contacts stay here even after you remove them from a time. Use the private phone and email links to contact them directly.</p>{people.length ? people.map((person) => <section key={person.name}><div className="people-summary-heading"><div><strong>{person.name}</strong><span className="compact-contact">{person.phone && <a href={`tel:${person.phone}`}>{person.phone}</a>}{person.email && <a href={`mailto:${person.email}`}>{person.email}</a>}</span></div><small>{person.events.length ? `${person.events.length} ${person.events.length === 1 ? 'commitment' : 'commitments'}` : 'No current commitments'}</small></div><div className="family-schedule-list">{person.events.map((event) => <button type="button" key={event.id} onClick={() => onEditEvent(event)}><span><strong>{eventDisplayTitle(event)}</strong><small>{event.dayLabel} · {eventTimeRangeLabel(event)}</small></span><span>Edit</span><Pencil aria-hidden="true" /></button>)}</div></section>) : <div className="organizer-empty"><Users aria-hidden="true" /><p><strong>No saved contacts yet.</strong></p></div>}</div> : <FamilyScheduleEditor events={events} foodSettings={foodSettings} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveFood={onSaveFoodSettings} onSaveVisit={onSaveVisitSettings} onSaveFamilyInTown={onSaveFamilyInTown} onEditInTownDates={onEditInTownDates} onEditBusyDates={onEditBusyDates} onAdd={onAddSchedule} onEdit={onEditEvent} />}
+    {tab === 'requests' ? requests.length ? <><p className="organizer-intro">Review support sign-ups, food drop-offs, and stop-by requests below. Contact information stays inside this private family area.</p><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div><button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></> : <div className="organizer-empty"><Check aria-hidden="true" /><p><strong>No requests are waiting.</strong><br />New requests will appear here even if email is delayed.</p></div> : tab === 'people' ? <div className="people-summary"><p className="organizer-intro">Saved contacts stay here even after you remove them from a time. Use the private phone and email links to contact them directly.</p>{people.length ? people.map((person) => <section key={person.name}><div className="people-summary-heading"><div><strong>{person.name}</strong><span className="compact-contact">{person.phone && <a href={`tel:${person.phone}`}>{person.phone}</a>}{person.email && <a href={`mailto:${person.email}`}>{person.email}</a>}</span></div><small>{person.events.length ? `${person.events.length} ${person.events.length === 1 ? 'commitment' : 'commitments'}` : 'No current commitments'}</small></div><div className="family-schedule-list">{person.events.map((event) => <button type="button" key={event.id} onClick={() => onEditEvent(event)}><span><strong>{eventDisplayTitle(event)}</strong><small>{event.dayLabel} · {eventTimeRangeLabel(event)}</small></span><span>Edit</span><Pencil aria-hidden="true" /></button>)}</div></section>) : <div className="organizer-empty"><Users aria-hidden="true" /><p><strong>No saved contacts yet.</strong></p></div>}</div> : <FamilyScheduleEditor events={events} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveFood={onSaveFoodSettings} onSaveFoodPreferences={onSaveFoodPreferences} onSaveVisit={onSaveVisitSettings} onSaveFamilyInTown={onSaveFamilyInTown} onEditInTownDates={onEditInTownDates} onEditBusyDates={onEditBusyDates} onAdd={onAddSchedule} onEdit={onEditEvent} />}
     {declining && <DeclineRequestModal name={declining.requesterName} onClose={() => setDeclining(null)} onDecline={(reason) => { onDecide(declining.id, 'decline', reason); setDeclining(null) }} />}
     {editingMember && <CareTeamMemberModal member={editingMember} onClose={() => setEditingMember(null)} onSave={async (member) => { if (await onSaveCareTeam(member)) setEditingMember(null) }} />}
   </section>
@@ -927,7 +951,7 @@ function DeclineRequestModal({ name, onClose, onDecline }: { name: string; onClo
   return <ModalShell title="Decline this request" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (reason.trim()) onDecline(reason.trim()) }}><p className="modal-intro">Add a short, kind reason for {name}. It will be included in their email when an email address is available.</p><label htmlFor="decline-reason">Reason</label><textarea id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: We no longer need coverage at this time." autoFocus required /><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="danger-button" type="submit" disabled={!reason.trim()}>Decline request</button></div></form></ModalShell>
 }
 
-function FamilyScheduleEditor({ events, foodSettings, visitSettings, familyInTown, familyInTownDates, onSaveFood, onSaveVisit, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAdd, onEdit }: { events: TeamEvent[]; foodSettings: FoodSettings; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveVisit: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAdd: (forWho: ForWho) => void; onEdit: (event: TeamEvent) => void }) {
+function FamilyScheduleEditor({ events, foodSettings, foodPreferences, visitSettings, familyInTown, familyInTownDates, onSaveFood, onSaveFoodPreferences, onSaveVisit, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAdd, onEdit }: { events: TeamEvent[]; foodSettings: FoodSettings; foodPreferences: FoodPreferences; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveVisit: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAdd: (forWho: ForWho) => void; onEdit: (event: TeamEvent) => void }) {
   const [person, setPerson] = useState<ForWho>('Mary')
   const [foodDays, setFoodDays] = useState(foodSettings.weekdays)
   const [foodStart, setFoodStart] = useState(foodSettings.startTime)
@@ -953,8 +977,21 @@ function FamilyScheduleEditor({ events, foodSettings, visitSettings, familyInTow
     {person === 'Mary' && <p className="work-hours-tip"><strong>Mary’s appointments matter.</strong> Home visits, massage, PT, nurses, and outside appointments block conflicting food or visit times automatically.</p>}
     {person === 'Gabby' && <p className="work-hours-tip"><strong>{familyInTown.Gabby ? 'Gabby is in town full time.' : familyInTownDates.Gabby.length ? `${familyInTownDates.Gabby.length} in-town dates selected.` : 'Gabby is currently out of town.'}</strong> When she is in town, block off only the hours when she is working, away, or needs a break.</p>}
     {person === 'Spencer' && <p className="work-hours-tip"><strong>{familyInTown.Spencer ? 'Spencer is in town full time.' : familyInTownDates.Spencer.length ? `${familyInTownDates.Spencer.length} in-town dates selected.` : 'Spencer is currently out of town.'}</strong> When he is in town, block off only his working or away times.</p>}
-    {person === 'Family' && <><div className="family-rules"><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (visitEnd > visitStart) await onSaveVisit({ startTime: visitStart, endTime: visitEnd }) }}><h3>Normal visiting hours</h3><p>Friends are welcome to request a Stop By time during these hours. They can still request a different time for the family to approve.</p><div className="field-row"><div><label htmlFor="visit-start">From</label><input id="visit-start" type="time" value={visitStart} onChange={(event) => setVisitStart(event.target.value)} required /></div><div><label htmlFor="visit-end">Until</label><input id="visit-end" type="time" value={visitEnd} onChange={(event) => setVisitEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={visitEnd <= visitStart}><Check aria-hidden="true" /> Save visiting hours</button></div></form><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the days and hours shown in Bring Food. Filled dates are hidden automatically.</p><fieldset className="weekday-picker"><legend>Available days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save food days</button></div></form></div><div className="family-schedule-divider" /><div><h3>Upcoming family appointments</h3><p>Open any item below to view or edit it.</p></div>{upcomingList}</>}
+    {person === 'Family' && <><div className="family-rules"><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (visitEnd > visitStart) await onSaveVisit({ startTime: visitStart, endTime: visitEnd }) }}><h3>Normal visiting hours</h3><p>Friends are welcome to request a Stop By time during these hours. They can still request a different time for the family to approve.</p><div className="field-row"><div><label htmlFor="visit-start">From</label><input id="visit-start" type="time" value={visitStart} onChange={(event) => setVisitStart(event.target.value)} required /></div><div><label htmlFor="visit-end">Until</label><input id="visit-end" type="time" value={visitEnd} onChange={(event) => setVisitEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={visitEnd <= visitStart}><Check aria-hidden="true" /> Save visiting hours</button></div></form><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the days and hours shown in Bring Food. Filled dates are hidden automatically.</p><fieldset className="weekday-picker"><legend>Available days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save food days</button></div></form><FoodPreferencesEditor preferences={foodPreferences} onSave={onSaveFoodPreferences} /></div><div className="family-schedule-divider" /><div><h3>Upcoming family appointments</h3><p>Open any item below to view or edit it.</p></div>{upcomingList}</>}
   </div>
+}
+
+function FoodPreferencesEditor({ preferences, onSave }: { preferences: FoodPreferences; onSave: (preferences: FoodPreferences) => Promise<boolean> }) {
+  const [form, setForm] = useState(preferences)
+  const updateSuggestion = (id: string, patch: Partial<FoodPreference>) => setForm((current) => ({ ...current, suggestions: current.suggestions.map((suggestion) => suggestion.id === id ? { ...suggestion, ...patch } : suggestion) }))
+  const addSuggestion = () => setForm((current) => ({ ...current, suggestions: [...current.suggestions, { id: crypto.randomUUID(), type: 'homemade', name: '', items: [], note: '' }] }))
+  return <form className="simple-settings food-preferences-editor" onSubmit={async (event) => { event.preventDefault(); await onSave({ ...form, suggestions: form.suggestions.filter((suggestion) => suggestion.name.trim()).map((suggestion) => ({ ...suggestion, name: suggestion.name.trim(), items: suggestion.items.map((item) => item.trim()).filter(Boolean), note: suggestion.note.trim() })) }) }}>
+    <h3>Food preferences and favorites</h3><p>These notes appear in Bring Food so people can choose something the household will enjoy.</p>
+    <label htmlFor="food-overview">What works well</label><textarea id="food-overview" value={form.overview} onChange={(event) => setForm({ ...form, overview: event.target.value })} />
+    <label htmlFor="food-avoid">Please avoid</label><textarea id="food-avoid" value={form.avoid} onChange={(event) => setForm({ ...form, avoid: event.target.value })} />
+    <div className="food-suggestion-list">{form.suggestions.map((suggestion, index) => <fieldset className="food-suggestion" key={suggestion.id}><legend>Favorite idea {index + 1}</legend><div className="field-row"><div><label htmlFor={`food-type-${suggestion.id}`}>Type</label><select id={`food-type-${suggestion.id}`} value={suggestion.type} onChange={(event) => updateSuggestion(suggestion.id, { type: event.target.value as FoodPreferenceType, items: event.target.value === 'restaurant' ? (suggestion.items.length ? suggestion.items : ['']) : [] })}><option value="restaurant">Restaurant</option><option value="homemade">Homemade</option><option value="grocery">Grocery item</option></select></div><div><label htmlFor={`food-name-${suggestion.id}`}>{suggestion.type === 'restaurant' ? 'Restaurant' : suggestion.type === 'homemade' ? 'Dish or meal' : 'Grocery item'}</label><input id={`food-name-${suggestion.id}`} value={suggestion.name} onChange={(event) => updateSuggestion(suggestion.id, { name: event.target.value })} placeholder={suggestion.type === 'restaurant' ? 'Example: Mendocino Farms' : suggestion.type === 'homemade' ? 'Example: Chicken and vegetables' : 'Example: Fresh fruit'} /></div></div>{suggestion.type === 'restaurant' && <div className="restaurant-items"><strong>Favorite menu items <span>(optional)</span></strong>{suggestion.items.map((item, itemIndex) => <div className="inline-item" key={`${suggestion.id}-${itemIndex}`}><input aria-label={`Favorite menu item ${itemIndex + 1}`} value={item} onChange={(event) => updateSuggestion(suggestion.id, { items: suggestion.items.map((current, currentIndex) => currentIndex === itemIndex ? event.target.value : current) })} placeholder="Menu item" />{suggestion.items.length > 1 && <button type="button" className="icon-text-button" onClick={() => updateSuggestion(suggestion.id, { items: suggestion.items.filter((_, currentIndex) => currentIndex !== itemIndex) })}><X aria-hidden="true" /> Remove</button>}</div>)}<button type="button" className="secondary-button compact-button" onClick={() => updateSuggestion(suggestion.id, { items: [...suggestion.items, ''] })}>+ Add item</button></div>}<label htmlFor={`food-note-${suggestion.id}`}>Note <span>(optional)</span></label><input id={`food-note-${suggestion.id}`} value={suggestion.note} onChange={(event) => updateSuggestion(suggestion.id, { note: event.target.value })} placeholder="Anything useful to know" /><button type="button" className="icon-text-button remove-suggestion" onClick={() => setForm((current) => ({ ...current, suggestions: current.suggestions.filter((item) => item.id !== suggestion.id) }))}><Trash2 aria-hidden="true" /> Remove this idea</button></fieldset>)}</div>
+    <button type="button" className="secondary-button" onClick={addSuggestion}>+ Add another favorite</button><div className="form-actions"><button className="primary-button" type="submit"><Check aria-hidden="true" /> Save food preferences</button></div>
+  </form>
 }
 
 function OrganizerLoginModal({ onClose, onLogin }: { onClose: () => void; onLogin: (pin: string) => Promise<void> }) {
@@ -991,7 +1028,7 @@ function SignupModal({ event, onClose, onSave }: { event: TeamEvent; onClose: ()
   return <ModalShell title="Tell us when you can come" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.isFlexible ? 'Anytime' : `${event.dayLabel}, help is welcome anytime from ${eventTimeRangeLabel(event)}`}</span><p>{event.helpNeeded}</p></div><form onSubmit={submit}>{!event.isFlexible && <><p className="form-note"><strong>You do not need to cover the entire window.</strong> Choose the time that actually works for you.</p><div className="field-row"><div><label htmlFor="helper-start">I can arrive at</label><input id="helper-start" type="time" min={event.time} max={event.endTime} value={startTime} onChange={(e) => setStartTime(e.target.value)} required /></div><div><label htmlFor="helper-end">I need to leave at</label><input id="helper-end" type="time" min={event.time} max={event.endTime} value={endTime} onChange={(e) => setEndTime(e.target.value)} required /></div></div>{!timeIsValid && <p className="field-error">Choose a start and end time inside the open window.</p>}</>}<label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><label htmlFor="helper-phone">Your phone number</label><input id="helper-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" required /><label htmlFor="helper-email">Your email address</label><input id="helper-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required /><label htmlFor="helper-note">Note or question <span>(optional)</span></label><textarea id="helper-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Example: Is 1–4 PM enough coverage, or would another day be more useful?" /><p className="form-note">Your exact time and note will be included with your request. We will email you after it is approved or declined.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Submitting…' : 'Submit this time'}</button></div></form></ModalShell>
 }
 
-function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSettings, foodReservedDates, onClose, onSave }: { type: PlanType; initialWindow?: TeamEvent | null; events: TeamEvent[]; foodSettings: FoodSettings; visitSettings: VisitSettings; foodReservedDates: string[]; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
+function PlanRequestModal({ type, initialWindow, events, foodSettings, foodPreferences, visitSettings, foodReservedDates, onClose, onSave }: { type: PlanType; initialWindow?: TeamEvent | null; events: TeamEvent[]; foodSettings: FoodSettings; foodPreferences: FoodPreferences; visitSettings: VisitSettings; foodReservedDates: string[]; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
   const [contact] = useState(savedHelperContact)
   const [name, setName] = useState(contact.name)
   const [phone, setPhone] = useState(contact.phone)
@@ -1034,6 +1071,7 @@ function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSett
 
   return <ModalShell title={type === 'food' ? 'Bring food' : 'Request a time to stop by'} onClose={onClose}>
     <p className="modal-intro">{type === 'food' ? `Choose an open ${foodDayNames} between ${eventTimeLabel(foodSettings.startTime)} and ${eventTimeLabel(foodSettings.endTime)}. Filled dates are unavailable.` : `The usual Stop By hours are ${eventTimeLabel(visitSettings.startTime)} – ${eventTimeLabel(visitSettings.endTime)}. Choose the time that works for you. You may stay longer if you would like.`}</p>
+    {type === 'food' && <FoodPreferencesCard preferences={foodPreferences} />}
     <form onSubmit={submit}>
       <label htmlFor="plan-name">Your name</label><input id="plan-name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your first and last name" autoComplete="name" autoFocus required />
       <div className="field-row"><div><label htmlFor="plan-phone">Phone number</label><input id="plan-phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="(602) 555-0123" autoComplete="tel" required /></div><div><label htmlFor="plan-email">Email address</label><input id="plan-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" autoComplete="email" required /></div></div>
@@ -1050,6 +1088,10 @@ function PlanRequestModal({ type, initialWindow, events, foodSettings, visitSett
       <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid || foodSlotUnavailable || stopByDayUnavailable}><Check aria-hidden="true" /> {saving ? 'Sending request…' : 'Send request'}</button></div>
     </form>
   </ModalShell>
+}
+
+function FoodPreferencesCard({ preferences }: { preferences: FoodPreferences }) {
+  return <section className="food-preferences-card" aria-labelledby="food-preferences-title"><h3 id="food-preferences-title">Food preferences</h3><p>{preferences.overview}</p>{preferences.avoid && <p className="food-avoid"><strong>Please avoid:</strong> {preferences.avoid}</p>}{preferences.suggestions.length > 0 && <div className="food-favorites"><strong>Favorite ideas</strong>{preferences.suggestions.map((suggestion) => <div key={suggestion.id}><span className={`food-type-tag ${suggestion.type}`}>{suggestion.type === 'grocery' ? 'Grocery item' : suggestion.type}</span><p><strong>{suggestion.name}</strong>{suggestion.items.length > 0 && <> · {suggestion.items.join(', ')}</>}{suggestion.note && <><br /><small>{suggestion.note}</small></>}</p></div>)}</div>}</section>
 }
 
 function AvailabilityModal({ onClose, onSave }: { onClose: () => void; onSave: (entries: Omit<Availability, 'id'>[]) => Promise<boolean> }) {
@@ -1159,165 +1201,286 @@ function EditAvailabilityModal({ entries, initialEntry, onClose, onSave, onRemov
   return <ModalShell title="Edit availability" onClose={onClose}>
     <p className="modal-intro">Choose the dates to change. The new contact details, hours, and support type will apply to every selected date.</p>
     <form onSubmit={submit}>
-      <fieldset className="bulk-date-list"><legend>Which dates do you want to change?</legend><div className="bulk-date-actions"><button type="button" onClick={() => setSelectedIds(entries.map((entry) => entry.id))}>Select all {entries.length} dates</button><button type="button" onClick={() => setSelectedIds([initialEntry.id])}>Only {availabilityDayLabel(initialEntry.day)}</button></div>{[...entries].sort((a, b) => a.day.localeCompare(b.day)).map((entry) => <label key={entry.id}><input type="checkbox" checked={selectedIds.includes(entry.id)} onChange={() => setSelectedIds((ids) => ids.includes(entry.id) ? ids.filter((id) => id !== entry.id) : [...ids, entry.id])} /><span><strong>{availabilityDayLabel(entry.day)}</strong><small>{availabilityTimeLabel(entry.time)}</small></span></label>)}</fieldset>
-      <p className="selection-summary"><strong>{selectedEntries.length || 'No'} {selectedEntries.length === 1 ? 'date' : 'dates'} selected</strong></p>
-      <label htmlFor="edit-available-name">Your name</label>
-      <input id="edit-available-name" required value={name} onChange={(event) => setName(event.target.value)} autoFocus />
-      <label htmlFor="edit-available-phone">Your phone number</label>
-      <input id="edit-available-phone" type="tel" required value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" />
-      <p className="form-note privacy-note">Your phone number will be visible to anyone who has the link to this page.</p>
-      <label>When are you available?</label>
-      <div className="time-mode" role="group" aria-label="Choose all day or specific hours"><button type="button" aria-pressed={timeMode === 'all-day'} onClick={() => setTimeMode('all-day')}>All day</button><button type="button" aria-pressed={timeMode === 'hours'} onClick={() => setTimeMode('hours')}>Choose hours</button></div>
-      {timeMode === 'hours' && <div className="field-row"><div><label htmlFor="edit-available-start-time">Available from</label><select id="edit-available-start-time" value={startTime} onChange={(event) => setStartTime(event.target.value)}>{timeOptions.slice(0, -1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div><div><label htmlFor="edit-available-end-time">Until</label><select id="edit-available-end-time" value={endTime} onChange={(event) => setEndTime(event.target.value)}>{timeOptions.slice(1).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div></div>}
-      {timeMode === 'hours' && !timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
-      <label htmlFor="edit-available-note">What are you comfortable supporting?</label>
-      <select id="edit-available-note" required value={note} onChange={(event) => setNote(event.target.value)}>{helpChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>
-      <div className="remove-area">{confirmRemove ? <div className="remove-confirm" role="alert"><p><strong>Remove {selectedEntries.length === 1 ? 'this date' : `these ${selectedEntries.length} dates`}?</strong><br />The other dates will stay on the list.</p><div><button className="text-button" type="button" onClick={() => setConfirmRemove(false)}>Keep them</button><button className="danger-button" type="button" onClick={() => onRemove(selectedEntries)}><Trash2 aria-hidden="true" /> Yes, remove {selectedEntries.length === 1 ? 'it' : 'them'}</button></div></div> : <button className="remove-button" type="button" onClick={() => setConfirmRemove(true)} disabled={!selectedEntries.length}><Trash2 aria-hidden="true" /> Remove selected {selectedEntries.length === 1 ? 'date' : 'dates'}</button>}</div>
-      <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid || !selectedEntries.length}><Check aria-hidden="true" /> Save changes to {selectedEntries.length || 0} {selectedEntries.length === 1 ? 'date' : 'dates'}</button></div>
-    </form>
-  </ModalShell>
+      <fieldset className="bulk-date-list"><legend>Which dates do you want to change?</legend><div className="bulk-date-actions"><button type="button" onClick={() => setSelectedIds(entries.map((entry) => entry.id))}>Select all {entries.length} dates</button><button type="button" onClick={() => setSelectedIds([initialEntry.id])}>Only {availabilityDayLabel(initialEntry.day)}</button></div>{[...entries].sort((a, b) => a.day.localeCompare(b.day)).map((entry) => <label key={entry.id}><input type="checkbox" checked={selectedIds.includes(entry.id)} onChange={() => setSelectedIds((ids) => ids.includes(entry.id) ? ids.filter((id) => id !== entry.id) : [...ids, entry.id])} /><span><strong>{availabilityDayLabel(entry.day)}</strong><small>{availabilityTimeLabel…13943 tokens truncated…ctive { border-color:#cbd9ce; background:#fff; box-shadow:0 2px 7px rgba(36,59,49,.1); }
+.family-schedule-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:14px; }
+.family-schedule-heading p { margin:4px 0 0!important; }
+.family-schedule-heading .secondary-button { flex:0 0 auto; }
+.family-schedule-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+.family-schedule-actions .primary-button,.family-schedule-actions .secondary-button { min-height:44px; padding:10px 13px; }
+.simple-settings { margin-top:22px; padding:18px; border:1px solid var(--line); border-radius:14px; background:#f8faf8; }
+.simple-settings h3 { margin:0 0 5px; color:var(--pine-dark); }
+.simple-settings>p { margin:0 0 16px; color:var(--muted); }
+.food-preferences-editor { grid-column:1/-1; }
+.food-suggestion-list { display:grid; gap:12px; margin:18px 0; }
+.food-suggestion { margin:0; padding:15px; border:1px solid var(--line); border-radius:11px; background:#fff; }
+.food-suggestion legend { padding:0 6px; color:var(--pine-dark); font-weight:850; }
+.restaurant-items { display:grid; gap:8px; margin:16px 0 6px; }
+.restaurant-items>strong { font-size:.95rem; }
+.restaurant-items>strong span { color:var(--muted); font-weight:550; }
+.inline-item { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; }
+.icon-text-button { border:0; background:transparent; color:#7a3d31; padding:8px; font:inherit; font-size:.84rem; font-weight:800; display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
+.icon-text-button svg { width:17px; }
+.remove-suggestion { margin-top:10px; }
+.compact-button { min-height:40px!important; padding:8px 11px!important; width:max-content; }
+.family-schedule-list { display:grid; gap:7px; margin-bottom:18px; }
+.family-schedule-list button { width:100%; min-height:62px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); padding:11px 13px; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:14px; text-align:left; cursor:pointer; }
+.family-schedule-list button:hover { border-color:var(--fern); background:#fbfdfb; }
+.family-schedule-list strong,.family-schedule-list small { display:block; }
+.family-schedule-list small { margin-top:3px; color:var(--muted); }
+.family-schedule-list button>span:nth-child(2) { color:var(--fern); font-size:.84rem; font-weight:750; text-align:right; }
+.family-schedule-list svg { width:18px; color:var(--pine); }
+.family-schedule-divider { height:1px; margin:24px 0; background:var(--line); }
+.work-hours-editor>div>p { margin:5px 0 16px; color:var(--muted); line-height:1.5; }
+.weekday-picker { margin:0; padding:0; border:0; }
+.weekday-picker legend { margin-bottom:9px; color:var(--ink); font-weight:850; }
+.weekday-picker label { display:inline-block; margin:0 7px 7px 0; cursor:pointer; }
+.weekday-picker input { position:absolute; opacity:0; pointer-events:none; }
+.weekday-picker label>span:first-of-type { min-width:55px; min-height:45px; border:1px solid #b8cabd; border-radius:9px; background:#fff; color:var(--pine-dark); display:grid; place-items:center; font-weight:800; }
+.weekday-picker input:checked+span { border-color:var(--pine); background:var(--pine); color:#fff; }
+.weekday-picker input:focus-visible+span { outline:3px solid #ddb455; outline-offset:2px; }
+.work-hours-tip { margin:16px 0 0; padding:12px 14px; border-radius:10px; background:var(--mist); color:var(--muted); line-height:1.5; }
+.work-hours-tip strong { color:var(--ink); }
+.sr-only { position:absolute!important; width:1px!important; height:1px!important; padding:0!important; margin:-1px!important; overflow:hidden!important; clip:rect(0,0,0,0)!important; white-space:nowrap!important; border:0!important; }
+.empty-availability { grid-column:1/-1; background:#fff; border:1px solid var(--line); border-radius:15px; padding:22px; display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:center; }
+.empty-availability>svg { width:44px; height:44px; padding:10px; background:var(--mint); color:var(--pine); border-radius:50%; }
+.empty-availability h3 { margin:0 0 4px; color:var(--pine-dark); font-size:1.12rem; }
+.empty-availability p { margin:0; color:var(--muted); line-height:1.45; }
+footer { background:var(--pine-dark); color:#fff; display:flex; justify-content:center; align-items:center; gap:18px; padding:35px 24px; text-align:left; }
+footer svg { width:34px; color:#cfe1d3; }
+footer p { margin:0; line-height:1.5; }
+.toast { position:fixed; right:24px; bottom:24px; z-index:50; background:var(--pine-dark); color:#fff; padding:17px 20px; border-radius:12px; box-shadow:0 12px 30px rgba(0,0,0,.25); display:flex; gap:10px; align-items:center; max-width:430px; font-weight:700; }
+.toast svg { width:24px; flex:0 0 auto; }
+.modal-backdrop { position:fixed; inset:0; background:rgba(20,38,29,.68); z-index:100; display:grid; place-items:center; padding:22px; overflow-y:auto; }
+.modal { background:#fff; color:var(--ink); width:min(610px,100%); border-radius:20px; padding:34px; box-shadow:0 30px 80px rgba(0,0,0,.3); position:relative; }
+.modal h2 { margin:0 44px 22px 0; font-size:2rem; line-height:1.12; }
+.close-button { position:absolute; right:22px; top:22px; width:44px; height:44px; border-radius:50%; border:1px solid var(--line); background:#fff; color:var(--pine); display:grid; place-items:center; }
+.close-button:hover { background:var(--mint); }
+.modal-summary { background:var(--mist); border-left:5px solid var(--fern); border-radius:10px; padding:18px; margin-bottom:22px; }
+.modal-summary strong,.modal-summary span { display:block; }
+.modal-summary strong { font-size:1.16rem; color:var(--pine-dark); }
+.modal-summary span { margin-top:5px; color:var(--muted); }
+.modal-summary p { margin:12px 0 0; font-weight:700; }
+.meal-week-status { margin:12px 0 18px; padding:12px 14px; border:1px solid #b9d2bf; border-radius:11px; background:#eef7f0; color:var(--pine-dark); display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:center; }
+.meal-week-status.covered { border-color:#dfc98f; background:#fff8e9; color:#654e1e; }
+.meal-week-status svg { width:24px; }
+.meal-week-status p { margin:0; line-height:1.45; }
+.food-preferences-card { margin:-5px 0 22px; padding:16px; border:1px solid #b9d2bf; border-radius:12px; background:#f4f9f5; }
+.food-preferences-card h3 { margin:0 0 7px; color:var(--pine-dark); }
+.food-preferences-card>p { margin:0; color:var(--ink); line-height:1.5; }
+.food-preferences-card .food-avoid { margin-top:8px; color:#704238; }
+.food-favorites { display:grid; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+.food-favorites>strong { color:var(--pine-dark); }
+.food-favorites>div { display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:start; }
+.food-favorites p { margin:1px 0 0; line-height:1.4; }
+.food-favorites small { color:var(--muted); }
+.food-type-tag { padding:4px 7px; border-radius:999px; background:#dceade; color:var(--pine-dark); font-size:.7rem; font-weight:850; text-transform:capitalize; white-space:nowrap; }
+.food-type-tag.restaurant { background:#e6f1f8; color:#275f82; }
+.food-type-tag.grocery { background:#fff1d6; color:#71501b; }
+.modal-intro { color:var(--muted); font-size:1.02rem; line-height:1.55; margin:-8px 0 22px; }
+.event-detail-summary { display:grid; gap:0; border:1px solid var(--line); border-radius:13px; overflow:hidden; }
+.event-detail-summary>div { padding:15px 17px; border-bottom:1px solid var(--line); background:#fff; }
+.event-detail-summary>div:last-child { border-bottom:0; }
+.event-detail-summary small,.event-detail-summary strong { display:block; }
+.event-detail-summary small { color:var(--muted); font-size:.78rem; font-weight:850; text-transform:uppercase; letter-spacing:.04em; }
+.event-detail-summary strong { margin-top:4px; color:var(--pine-dark); line-height:1.45; }
+.event-detail-summary p { margin:5px 0 0; color:var(--ink); line-height:1.55; }
+.compact-contact { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:5px; color:var(--muted); font-size:.82rem; font-weight:600; }
+.compact-contact a { color:var(--pine); text-decoration:underline; }
+.compact-contact-list { display:grid; gap:8px; margin-top:8px; }
+.compact-contact-list>span { display:grid; grid-template-columns:1fr auto; gap:2px 10px; align-items:center; font-size:.86rem; }
+.compact-contact-list>span strong { margin:0; font-size:.88rem; }
+.compact-contact-list>span small { grid-column:1; margin:0; text-transform:none; letter-spacing:0; font-size:.78rem; }
+.compact-contact-list>span a { grid-column:2; grid-row:1 / span 2; color:var(--pine); font-size:.8rem; }
+form label { display:block; font-weight:800; color:var(--ink); margin:16px 0 7px; }
+form label span { font-weight:500; color:var(--muted); }
+input,textarea,select { width:100%; border:2px solid #b9c9bd; border-radius:10px; padding:14px 15px; color:var(--ink); background:#fff; font-size:1.05rem; }
+input { min-height:53px; }
+textarea { min-height:95px; resize:vertical; }
+.field-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.form-note { color:var(--muted); font-size:.9rem; line-height:1.45; margin:10px 0 0; }
+.privacy-note { padding:10px 12px; border-radius:9px; background:#fff8e9; color:#624c24; }
+.form-actions { display:flex; justify-content:flex-end; gap:14px; margin-top:26px; }
+.repeat-toggle { margin-top:18px; padding:13px 15px; border:1px solid var(--line); border-radius:11px; background:var(--mist); display:flex; align-items:center; gap:12px; cursor:pointer; }
+.repeat-toggle input { width:24px; min-height:24px; height:24px; flex:0 0 24px; accent-color:var(--pine); }
+.repeat-toggle span,.repeat-toggle strong,.repeat-toggle small { display:block; }
+.repeat-toggle span { position:relative; padding-left:29px; }
+.repeat-toggle svg { position:absolute; left:0; top:1px; width:20px; color:var(--pine); }
+.repeat-toggle small { margin-top:2px; color:var(--muted); font-weight:550; }
+.bulk-date-list { margin:0; padding:0; border:0; display:grid; gap:8px; }
+.bulk-date-list legend { margin-bottom:8px; color:var(--ink); font-weight:850; }
+.bulk-date-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:2px; }
+.bulk-date-actions button { min-height:44px; border:1px solid #aec3b3; border-radius:9px; background:#fff; color:var(--pine-dark); padding:8px 10px; font:inherit; font-weight:800; cursor:pointer; }
+.bulk-date-actions button:hover { background:var(--mint); }
+.bulk-date-list label { margin:0; padding:11px 13px; border:1px solid var(--line); border-radius:10px; display:flex; align-items:center; gap:12px; background:var(--mist); cursor:pointer; }
+.bulk-date-list input { width:23px; min-height:23px; height:23px; flex:0 0 23px; accent-color:var(--pine); }
+.bulk-date-list span,.bulk-date-list strong,.bulk-date-list small { display:block; }
+.bulk-date-list small { margin-top:2px; color:var(--muted); font-weight:600; }
+.remove-area { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
+.remove-button,.danger-button { min-height:44px; border-radius:10px; padding:10px 14px; display:inline-flex; align-items:center; justify-content:center; gap:8px; font:inherit; font-weight:800; cursor:pointer; }
+.remove-button { border:1px solid #d2b4aa; background:#fff; color:#7a3d31; }
+.danger-button { border:1px solid #7b3a31; background:#7b3a31; color:#fff; }
+.remove-button svg,.danger-button svg { width:19px; }
+.remove-confirm { padding:16px; border:1px solid #d7b9ae; border-radius:12px; background:#fff7f4; }
+.remove-confirm p { margin:0; line-height:1.5; }
+.remove-confirm>div { display:flex; justify-content:flex-end; gap:10px; margin-top:14px; }
+.availability-mode { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; padding:5px; border-radius:12px; background:#eef3ef; }
+.availability-mode button { min-height:44px; border:0; border-radius:9px; background:transparent; color:var(--pine-dark); font:inherit; font-weight:800; cursor:pointer; }
+.availability-mode button[aria-pressed="true"] { background:#fff; box-shadow:0 1px 5px rgba(36,59,49,.13); }
+.calendar-date-picker { padding:9px; border:1px solid #d6e1d8; border-radius:12px; background:#f8faf8; }
+.date-picker-weekdays { display:grid; grid-template-columns:repeat(7,1fr); gap:7px; margin-bottom:6px; }
+.date-picker-weekdays span { text-align:center; color:var(--muted); font-size:.72rem; font-weight:850; text-transform:uppercase; }
+.date-picker-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:7px; }
+.date-picker-blank { min-height:58px; }
+.date-picker-grid button { min-height:58px; border:1px solid #c6d5ca; border-radius:9px; background:#fff; color:var(--pine-dark); font:inherit; cursor:pointer; }
+.date-picker-grid button span,.date-picker-grid button strong { display:block; }
+.date-picker-grid button span { font-size:.75rem; color:var(--muted); }
+.date-picker-grid button strong { margin-top:2px; font-size:1.05rem; }
+.date-picker-grid button[aria-pressed="true"] { border-color:var(--pine); background:var(--pine); color:#fff; }
+.date-picker-grid button[aria-pressed="true"] span { color:#fff; }
+.date-picker-grid button:disabled { cursor:not-allowed; opacity:.42; background:#eef1ee; }
+.date-picker-grid button small { display:block; margin-top:2px; color:#795f2a; font-size:.56rem; font-weight:850; text-transform:uppercase; }
+.range-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.range-fields>div:first-child:nth-last-child(3) { grid-column:1/-1; }
+.time-mode { display:grid; grid-template-columns:1fr 1fr; gap:8px; padding:5px; border-radius:12px; background:#eef3ef; }
+.time-mode button { min-height:46px; border:0; border-radius:9px; background:transparent; color:var(--pine-dark); font:inherit; font-weight:800; cursor:pointer; }
+.time-mode button[aria-pressed="true"] { background:#fff; box-shadow:0 1px 5px rgba(36,59,49,.13); }
+.selection-summary { margin:10px 0 18px; color:var(--muted); }
+.field-error { margin:-4px 0 16px; color:#8a3f2f; font-weight:750; }
+.primary-button:disabled { cursor:not-allowed; opacity:.48; }
+.full-button { width:100%; margin-top:26px; }
+.show-more-button { width:min(100%,360px); margin:4px auto 0; }
+.family-rules { display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+.outside-hours-note { margin:-2px 0 18px; padding:12px 14px; border:1px solid #dfc98f; border-radius:10px; background:#fff8e9; color:#654d20; line-height:1.45; }
+.help-list { display:grid; gap:18px; }
+.help-list>div { display:grid; grid-template-columns:44px 1fr; gap:14px; align-items:flex-start; }
+.help-list span { width:40px; height:40px; border-radius:50%; background:var(--mint); color:var(--pine-dark); display:grid; place-items:center; font-weight:900; }
+.help-list p { margin:0; line-height:1.55; color:var(--muted); }
+.help-list strong { color:var(--ink); }
+@media (max-width:900px) {
+  .welcome { align-items:flex-start; flex-direction:column; gap:28px; }
+  .quick-actions { min-width:0; width:100%; align-items:stretch; }
+  .steps ol { grid-template-columns:1fr; gap:17px; }
+  .section-heading { align-items:flex-start; flex-direction:column; }
+  .view-toggle { width:100%; }
+  .view-toggle button { flex:1; justify-content:center; }
+  .filters { justify-content:flex-start; }
+  .event-card { grid-template-columns:205px 1fr; }
+  .event-actions { grid-column:1/-1; border-left:0; border-top:1px solid #e2e9e3; flex-direction:row; padding:18px 24px; }
+  .event-actions>* { flex:1; }
 }
-function dayLabelForDate(date: string) {
-  return new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+@media (max-width:650px) {
+  .site-header { min-height:0; padding:9px 12px 8px; display:grid; grid-template-columns:1fr auto; gap:7px 8px; }
+  .brand { font-size:1.4rem; }
+  .brand-mark { width:40px; height:40px; }
+  .primary-nav { grid-column:1/-1; width:100%; margin:0; display:grid; grid-template-columns:repeat(3,1fr); gap:5px; }
+  .primary-nav button { min-width:0; min-height:47px; padding:5px 3px; flex-direction:column; gap:2px; border-color:#dbe5dd; background:#fbfdfb; font-size:.72rem; line-height:1.08; }
+  .primary-nav svg { width:18px; height:18px; }
+  .header-tools { grid-column:2; grid-row:1; justify-self:end; }
+  .help-button,.family-access-button { width:42px; height:42px; padding:0; font-size:0; }
+  .help-button span,.family-access-button span { display:none; }
+  .help-button svg,.family-access-button svg { width:23px; }
+  .family-access-button { position:relative; }
+  .family-access-button strong { position:absolute; right:-2px; top:-2px; min-width:18px; height:18px; font-size:.65rem; }
+  main { width:min(100% - 28px,1180px); }
+  .welcome { padding:28px 0 20px; gap:20px; }
+  h1 { font-size:2.4rem; }
+  .intro { font-size:1.08rem; margin-top:10px; }
+  .quick-actions { gap:8px; }
+  .quick-actions .text-button { display:none; }
+  .helper-note { grid-template-columns:auto 1fr; padding:13px 14px; }
+  .helper-note>button { grid-column:2; justify-self:start; padding:3px 0 1px; }
+  .approval-banner { grid-template-columns:auto 1fr; align-items:start; }
+  .approval-banner button { grid-column:1/-1; width:100%; }
+  .organizer-panel { padding:16px; }
+  .organizer-heading { align-items:flex-start; flex-direction:column; }
+  .organizer-tabs { grid-template-columns:1fr; }
+  .work-hours-editor { padding:15px; }
+  .family-roster { grid-template-columns:1fr; }
+  .family-person-tabs { grid-template-columns:repeat(3,1fr); }
+  .family-schedule-heading { align-items:flex-start; flex-direction:column; }
+  .family-schedule-actions,.family-schedule-actions .primary-button,.family-schedule-actions .secondary-button { width:100%; }
+  .family-schedule-list button { grid-template-columns:minmax(0,1fr) auto; }
+  .family-schedule-list button>span:nth-child(2) { grid-column:1; text-align:left; }
+  .family-schedule-list svg { grid-column:2; grid-row:1/3; }
+  .weekday-picker { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .weekday-picker label { margin:0; }
+  .weekday-picker label>span:first-of-type { min-width:0; }
+  .organizer-requests article { grid-template-columns:1fr; }
+  .organizer-requests article>div:last-child { justify-content:flex-end; }
+  .cloud-message.error { align-items:flex-start; flex-direction:column; }
+  .schedule { padding-top:36px; }
+  .section-heading h2 { font-size:2rem; }
+  .filters { display:none; }
+  .status-filters { flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; scrollbar-width:none; }
+  .status-filters::-webkit-scrollbar { display:none; }
+  .status-filters button { flex:0 0 auto; }
+  .event-card { grid-template-columns:1fr; }
+  .event-card.has-response { grid-template-columns:1fr; min-height:0; }
+  .event-date { border-right:0; border-bottom:1px solid #e2e9e3; }
+  .event-date p { margin-top:16px; }
+  .event-info,.event-date { padding:20px; }
+  .event-info>p { display:none; }
+  .card-details-hint { display:block; margin-top:7px; }
+  .event-actions { grid-column:auto; flex-direction:column; padding:20px; }
+  .availability-section .secondary-button { width:100%; }
+  .availability-view-heading { align-items:flex-start; flex-direction:column; }
+  .availability-view-heading .view-toggle { width:100%; }
+  .availability-list article { grid-template-columns:84px minmax(0,1fr) auto; gap:10px; padding:12px; align-items:start; }
+  .availability-date { padding-right:9px; align-self:stretch; display:flex; flex-direction:column; justify-content:center; }
+  .availability-date strong { font-size:.88rem; }
+  .person-icon { display:none; }
+  .availability-person { min-width:0; }
+  .availability-list h3 { font-size:1rem; }
+  .availability-help { font-size:.9rem; }
+  .availability-phone { font-size:.76rem; overflow-wrap:anywhere; }
+  .tap-edit { grid-column:3; grid-row:1; padding:5px 4px; font-size:.78rem; }
+  .support-filter-note { align-items:flex-start; flex-direction:column; }
+  .empty-availability { grid-template-columns:auto 1fr; padding:18px; }
+  .empty-availability .secondary-button { grid-column:1/-1; width:100%; }
+  .calendar-day { grid-template-columns:76px 1fr; min-height:92px; }
+  .calendar-date strong { font-size:1.75rem; }
+  .calendar-items { padding:9px; }
+  .calendar-items button { padding:10px; }
+  .month-calendar-heading { min-height:58px; padding:7px 9px; grid-template-columns:42px 1fr 42px; }
+  .month-calendar-heading h3 { font-size:1.25rem; }
+  .month-calendar-heading button { width:38px; height:38px; }
+  .month-weekdays span { padding:8px 1px; font-size:.65rem; letter-spacing:0; }
+  .month-cell { min-height:73px; padding:5px 4px; gap:4px; align-items:center; }
+  .month-cell.outside-month { opacity:.55; }
+  .month-cell.today .month-number { width:27px; height:27px; margin:-2px 0 0; }
+  .month-number { font-size:.87rem; }
+  .month-statuses { gap:2px; }
+  .month-status { padding:3px 2px; font-size:.52rem; line-height:1.05; text-align:center; }
+  .family-rules { grid-template-columns:1fr; }
+  .modal { padding:28px 20px 22px; }
+  .modal h2 { font-size:1.7rem; }
+  .close-button { right:16px; top:16px; }
+  .field-row { grid-template-columns:1fr; gap:0; }
+  .calendar-date-picker { padding:6px; }
+  .date-picker-grid,.date-picker-weekdays { gap:4px; }
+  .date-picker-grid button,.date-picker-blank { min-height:48px; }
+  .date-picker-grid button span { font-size:.66rem; }
+  .range-fields { grid-template-columns:1fr; gap:0; }
+  .form-actions { flex-direction:column-reverse; }
+  .form-actions>* { width:100%; }
+  .remove-button { width:100%; }
+  .remove-confirm>div { flex-direction:column; }
+  .remove-confirm button { width:100%; }
+  .bulk-date-actions { grid-template-columns:1fr; }
+  footer { text-align:center; flex-direction:column; }
+  .toast { left:14px; right:14px; bottom:14px; }
+  #organizer-panel,#schedule-title { scroll-margin-top:145px; }
+}
+.family-rules .simple-settings:first-child { display:none; }
+.family-rules { grid-template-columns:1fr; }
+@media print {
+  .site-header,.quick-actions,.helper-note,.filters,.view-toggle,.event-actions,.availability-section .secondary-button,footer { display:none!important; }
+  body { background:#fff; }
+  main { width:100%; }
+  .welcome { padding:20px 0; }
+  h1 { font-size:2.4rem; }
+  .schedule { padding:10px 0; }
+  .event-card { break-inside:avoid; box-shadow:none; grid-template-columns:180px 1fr; min-height:auto; }
+  .event-info,.event-date { padding:14px; }
 }
 
-function compactEventDate(date: string, time: string) {
-  return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
-}
-
-function FamilyBusyDatesModal({ person, events, onClose, onSave }: { person: keyof FamilyInTown; events: TeamEvent[]; onClose: () => void; onSave: (dates: string[], startTime: string, endTime: string) => Promise<boolean> }) {
-  const days = getThirtyDays()
-  const first = days[0].dateKey
-  const last = days.at(-1)?.dateKey || first
-  const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
-  const tracked = events.filter((event) => event.forWho === person && event.date.slice(0, 8) >= first && event.date.slice(0, 8) <= last && (event.scheduleSource === 'family_busy' || event.scheduleSource === 'stu_work'))
-  const [selectedDates, setSelectedDates] = useState(() => [...new Set(tracked.map((event) => event.date.slice(0, 8)))])
-  const [saving, setSaving] = useState(false)
-  return <ModalShell title={`${person}’s work or away days`} onClose={onClose}><p className="modal-intro">Tap each date {person} will be working or away. Tap a selected date again to remove it.</p><form onSubmit={async (event) => { event.preventDefault(); if (saving) return; setSaving(true); if (!await onSave(selectedDates, '09:00', '17:00')) setSaving(false) }}><div className="calendar-date-picker"><div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div><div className="date-picker-grid">{Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`busy-blank-${index}`} />)}{days.map((day) => { const selected = selectedDates.includes(day.dateKey); return <button type="button" key={day.dateKey} aria-pressed={selected} aria-label={`${day.fullDay}${selected ? ', selected' : ''}`} onClick={() => setSelectedDates(selected ? selectedDates.filter((date) => date !== day.dateKey) : [...selectedDates, day.dateKey])}><span>{day.monthShort}</span><strong>{day.number}</strong></button> })}</div></div><p className="form-note"><strong>{selectedDates.length || 'No'} {selectedDates.length === 1 ? 'date' : 'dates'} selected.</strong> Saving will not change the hours or details of dates already on the schedule. Open each newly added date afterward to set its individual hours and details.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save selected dates'}</button></div></form></ModalShell>
-}
-
-function FamilyInTownDatesModal({ person, selectedDates, onClose, onSave }: { person: keyof FamilyInTown; selectedDates: string[]; onClose: () => void; onSave: (dates: string[]) => Promise<boolean> }) {
-  const days = getThirtyDays()
-  const first = days[0].dateKey
-  const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
-  const [dates, setDates] = useState(selectedDates)
-  const [saving, setSaving] = useState(false)
-  return <ModalShell title={`${person}’s in-town dates`} onClose={onClose}><p className="modal-intro">Tap each date {person} will be in town. On these days, the app assumes {person} is with Mary unless work or away time is blocked off.</p><form onSubmit={async (event) => { event.preventDefault(); if (saving) return; setSaving(true); if (!await onSave(dates)) setSaving(false) }}><div className="calendar-date-picker"><div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div><div className="date-picker-grid">{Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`town-blank-${index}`} />)}{days.map((day) => { const selected = dates.includes(day.dateKey); return <button type="button" key={day.dateKey} aria-pressed={selected} aria-label={`${day.fullDay}${selected ? ', in town' : ', out of town'}`} onClick={() => setDates(selected ? dates.filter((date) => date !== day.dateKey) : [...dates, day.dateKey])}><span>{day.monthShort}</span><strong>{day.number}</strong></button> })}</div></div><p className="form-note"><strong>{dates.length || 'No'} in-town {dates.length === 1 ? 'date' : 'dates'} selected.</strong> All other dates are treated as out of town.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save in-town dates'}</button></div></form></ModalShell>
-}
-
-function DriverFields({ contacts, driver, onChange }: { contacts: DriverContact[]; driver: DriverContact; onChange: (driver: DriverContact) => void }) {
-  const currentContact = contacts.findIndex((contact) => contact.name === driver.name && phoneKey(contact.phone) === phoneKey(driver.phone))
-  const [choice, setChoice] = useState(driver.name ? currentContact >= 0 ? `contact:${currentContact}` : 'manual' : 'open')
-  function choose(value: string) {
-    setChoice(value)
-    if (value === 'open') onChange({ name: '', phone: '', email: '' })
-    else if (value.startsWith('contact:')) onChange(contacts[Number(value.split(':')[1])] || { name: '', phone: '', email: '' })
-    else onChange({ name: '', phone: '', email: '' })
-  }
-  return <div className="driver-fields">
-    <label htmlFor="ride-driver">Who is driving?</label>
-    <select id="ride-driver" value={choice} onChange={(event) => choose(event.target.value)}>
-      <option value="open">Still need a driver</option>
-      {contacts.map((contact, index) => <option value={`contact:${index}`} key={`${contact.name}-${contact.phone}`}>{contact.name}</option>)}
-      <option value="manual">Someone else has agreed</option>
-    </select>
-    {choice !== 'open' && <><div className="field-row"><div><label htmlFor="driver-name">Driver’s name</label><input id="driver-name" required value={driver.name} onChange={(event) => onChange({ ...driver, name: event.target.value })} /></div><div><label htmlFor="driver-phone">Phone number</label><input id="driver-phone" type="tel" required value={driver.phone} onChange={(event) => onChange({ ...driver, phone: event.target.value })} autoComplete="tel" /></div></div><label htmlFor="driver-email">Email address</label><input id="driver-email" type="email" required value={driver.email} onChange={(event) => onChange({ ...driver, email: event.target.value })} autoComplete="email" placeholder="Needed to send confirmation" /><p className="form-note">This person will receive a confirmation email with the appointment details and destination.</p></>}
-  </div>
-}
-
-function AddEventModal({ initialForWho, availability, events, onClose, onSave }: { initialForWho: ForWho; availability: Availability[]; events: TeamEvent[]; onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
-  const [form, setForm] = useState(() => ({ title: initialForWho === 'Mary' ? 'At Home Appointment' : '', date: localDateInputValue(), time: '12:00', endTime: '13:00', forWho: initialForWho, helpNeeded: initialForWho === 'Mary' ? 'No help needed' : needsTimeWithMary(initialForWho) ? 'Spend time with Mary' : 'Need a ride', details: '', locationChoice: initialForWho === 'Mary' ? 'home' : 'location', location: '', helper: '', helperPhone: '', helperEmail: '', isFlexible: false }))
-  const [repeats, setRepeats] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [repeatThrough, setRepeatThrough] = useState(() => {
-    const repeatDefault = new Date()
-    repeatDefault.setDate(repeatDefault.getDate() + 28)
-    return repeatDefault.toISOString().slice(0, 10)
-  })
-  const timeIsValid = form.isFlexible || form.endTime > form.time
-  const hideLocation = form.helpNeeded === 'Spend time with Mary'
-
-  function changeStartTime(time: string) {
-    const endTime = addHour(time)
-    setForm((current) => ({ ...current, time, endTime: endTime > time ? endTime : current.endTime }))
-  }
-
-  async function submit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!timeIsValid || saving) return
-    const dates: string[] = []
-    const cursor = new Date(`${form.date}T12:00:00`)
-    const finalDate = new Date(`${repeats ? (repeatThrough < form.date ? form.date : repeatThrough) : form.date}T12:00:00`)
-    while (cursor <= finalDate && dates.length < 52) {
-      dates.push(cursor.toISOString().slice(0, 10))
-      cursor.setDate(cursor.getDate() + 7)
-    }
-    const repeatGroupId = repeats ? crypto.randomUUID() : undefined
-    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, title: form.title, details: form.details.trim() || defaultEventDetails, location: hideLocation ? undefined : form.locationChoice === 'home' ? 'Home' : form.location || undefined, helpNeeded: form.helpNeeded, helper: form.helpNeeded === 'Need a ride' ? form.helper || undefined : undefined, helperPhone: form.helpNeeded === 'Need a ride' ? form.helperPhone || undefined : undefined, helperEmail: form.helpNeeded === 'Need a ride' ? form.helperEmail || undefined : undefined, repeatGroupId: form.isFlexible ? undefined : repeatGroupId, isFlexible: form.isFlexible }))
-    setSaving(true)
-    const saved = await onSave(events)
-    if (!saved) setSaving(false)
-  }
-
-  return <ModalShell title="Add an appointment or task" onClose={onClose}><p className="modal-intro">Add one item or repeat it every week.</p><form onSubmit={submit}>
-    <label htmlFor="event-title">What is happening?</label>{form.forWho === 'Mary' ? <select id="event-title" required value={form.title} onChange={(event) => { const title = event.target.value; setForm({ ...form, title, locationChoice: title === 'At Home Appointment' ? 'home' : 'location', helpNeeded: title === 'At Home Appointment' ? 'No help needed' : 'Need a ride' }) }} autoFocus>{maryAppointmentChoices.map((choice) => <option key={choice}>{choice}</option>)}</select> : <input id="event-title" required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="Example: Stu at work" autoFocus />}
-    <div className="field-row"><div><label htmlFor="event-date">{form.isFlexible ? 'Available starting' : 'Date'}</label><input id="event-date" type="date" required value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} /></div><div><label htmlFor="event-for-who">Who is this for?</label><select id="event-for-who" value={form.forWho} onChange={(event) => { const forWho = event.target.value as ForWho; setForm({ ...form, forWho, title: forWho === 'Mary' ? 'At Home Appointment' : form.title === 'At Home Appointment' || form.title === 'Appointment' ? '' : form.title, locationChoice: forWho === 'Mary' ? 'home' : form.locationChoice, helpNeeded: forWho === 'Mary' ? 'No help needed' : needsTimeWithMary(forWho) ? 'Spend time with Mary' : form.helpNeeded }) }}>{whoChoices.map((person) => <option key={person}>{person}</option>)}</select></div></div>
-    <label className="repeat-toggle"><input type="checkbox" checked={form.isFlexible} onChange={(event) => setForm({ ...form, isFlexible: event.target.checked })} /><span><Clock3 aria-hidden="true" /><strong>Anytime task</strong><small>Use this for something that needs to be done but has no set appointment time.</small></span></label>
-    {!form.isFlexible && <div className="field-row"><div><label htmlFor="event-time">Starts</label><input id="event-time" type="time" required value={form.time} onChange={(event) => changeStartTime(event.target.value)} /></div><div><label htmlFor="event-end-time">Ends</label><input id="event-end-time" type="time" required value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} /></div></div>}
-    {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
-    {!form.isFlexible && <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={(event) => setRepeats(event.target.checked)} /><span><Repeat2 aria-hidden="true" /><strong>Repeat every week</strong><small>Add this on the same weekday each week.</small></span></label>}
-    {!form.isFlexible && repeats && <><label htmlFor="repeat-through">Repeat through</label><input id="repeat-through" type="date" min={form.date} value={repeatThrough < form.date ? form.date : repeatThrough} onChange={(event) => setRepeatThrough(event.target.value)} /></>}
-    <label htmlFor="event-help">What support is needed?</label><select id="event-help" value={form.helpNeeded} onChange={(event) => setForm({ ...form, helpNeeded: event.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
-    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={availableDriverContacts(form.date, form.time, form.endTime, availability, events)} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
-    {!hideLocation && <><label htmlFor="event-location-choice">Where?</label><select id="event-location-choice" value={form.locationChoice} onChange={(event) => { const locationChoice = event.target.value; setForm({ ...form, locationChoice, title: form.forWho === 'Mary' ? locationChoice === 'home' ? 'At Home Appointment' : 'Appointment' : form.title, helpNeeded: form.forWho === 'Mary' ? locationChoice === 'home' ? 'No help needed' : 'Need a ride' : form.helpNeeded }) }}><option value="home">Home</option><option value="location">Location</option></select>{form.locationChoice === 'location' && <><label htmlFor="event-location">Location name or address</label><input id="event-location" required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Example: Mayo Clinic, 13400 E Shea Blvd" /></>}</>}
-    <label htmlFor="event-details">Details {form.forWho !== 'Mary' && <span>(optional)</span>}</label><textarea id="event-details" required={form.forWho === 'Mary'} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder={form.forWho === 'Mary' ? 'Example: Stretch with Cara' : defaultEventDetails} />
-    <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid || saving} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : repeats ? 'Add weekly schedule' : 'Add to the schedule'}</button></div>
-  </form></ModalShell>
-}
-
-function EditEventModal({ event, availability, events, onClose, onSave, onRemove }: { event: TeamEvent; availability: Availability[]; events: TeamEvent[]; onClose: () => void; onSave: (event: TeamEvent) => void; onRemove: (eventId: string) => void }) {
-  const date = `${event.date.slice(0, 4)}-${event.date.slice(4, 6)}-${event.date.slice(6, 8)}`
-  const isMaryAppointment = event.forWho === 'Mary' && event.category === 'appointment'
-  const originalTitleIsStandard = maryAppointmentChoices.includes(event.title)
-  const startsAtHome = event.location?.trim().toLocaleLowerCase() === 'home' || event.title.toLocaleLowerCase().includes('at home')
-  const [form, setForm] = useState({ ...event, title: isMaryAppointment ? startsAtHome ? 'At Home Appointment' : 'Appointment' : event.title, details: isMaryAppointment && !originalTitleIsStandard && event.details === defaultEventDetails ? event.title : event.details, locationChoice: startsAtHome ? 'home' : 'location', location: startsAtHome ? '' : event.location || '', helper: event.helper || '', helperPhone: event.helperPhone || '', helperEmail: event.helperEmail || '', date, endTime: event.endTime || addHour(event.time), helpNeeded: isNoSupport(event.helpNeeded) ? 'No help needed' : event.helpNeeded })
-  const [confirmRemove, setConfirmRemove] = useState(false)
-  const timeIsValid = form.isFlexible || form.endTime > form.time
-  const hideLocation = form.helpNeeded === 'Spend time with Mary'
-  const contacts = knownContacts(events, availability)
-
-  function submit(submitEvent: React.FormEvent) {
-    submitEvent.preventDefault()
-    if (!timeIsValid) return
-    onSave({ ...event, ...form, category: form.forWho === 'Mary' ? 'appointment' : 'family', date: compactEventDate(form.date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(form.date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, details: form.details.trim() || defaultEventDetails, location: hideLocation ? undefined : form.locationChoice === 'home' ? 'Home' : form.location || undefined, helper: isNoSupport(form.helpNeeded) ? undefined : form.helper || undefined, helperPhone: isNoSupport(form.helpNeeded) ? undefined : form.helperPhone || undefined, helperEmail: isNoSupport(form.helpNeeded) ? undefined : form.helperEmail || undefined })
-  }
-
-  return <ModalShell title="View or edit schedule" onClose={onClose}><p className="modal-intro">Click any box below to make a change.{event.repeatGroupId || event.scheduleSource === 'stu_work' ? ' This changes this date only.' : ''}</p><form onSubmit={submit}>
-    <label htmlFor="edit-event-title">What is happening?</label>{form.forWho === 'Mary' && event.category === 'appointment' ? <select id="edit-event-title" required value={form.title} onChange={(changeEvent) => { const title = changeEvent.target.value; setForm({ ...form, title, locationChoice: title === 'At Home Appointment' ? 'home' : form.locationChoice }) }} autoFocus>{maryAppointmentChoices.map((choice) => <option key={choice}>{choice}</option>)}</select> : <input id="edit-event-title" required value={form.title} onChange={(changeEvent) => setForm({ ...form, title: changeEvent.target.value })} autoFocus />}
-    <div className="field-row"><div><label htmlFor="edit-event-date">{form.isFlexible ? 'Available starting' : 'Date'}</label><input id="edit-event-date" type="date" required value={form.date} onChange={(changeEvent) => setForm({ ...form, date: changeEvent.target.value })} /></div><div><label htmlFor="edit-event-for-who">Who is this for?</label><select id="edit-event-for-who" value={form.forWho} onChange={(changeEvent) => { const forWho = changeEvent.target.value as ForWho; setForm({ ...form, forWho, helpNeeded: needsTimeWithMary(forWho) ? 'Spend time with Mary' : form.helpNeeded }) }}>{whoChoices.map((person) => <option key={person}>{person}</option>)}</select></div></div>
-    <label className="repeat-toggle"><input type="checkbox" checked={Boolean(form.isFlexible)} onChange={(changeEvent) => setForm({ ...form, isFlexible: changeEvent.target.checked, time: changeEvent.target.checked ? 'anytime' : '12:00', endTime: changeEvent.target.checked ? 'anytime' : '13:00', dayLabel: changeEvent.target.checked ? 'Anytime' : form.dayLabel })} /><span><Clock3 aria-hidden="true" /><strong>Anytime task</strong><small>Use this for something that needs doing but has no set appointment time.</small></span></label>
-    {!form.isFlexible && <div className="field-row"><div><label htmlFor="edit-event-time">Starts</label><input id="edit-event-time" type="time" required value={form.time} onChange={(changeEvent) => setForm({ ...form, time: changeEvent.target.value, endTime: addHour(changeEvent.target.value) })} /></div><div><label htmlFor="edit-event-end-time">Ends</label><input id="edit-event-end-time" type="time" required value={form.endTime} onChange={(changeEvent) => setForm({ ...form, endTime: changeEvent.target.value })} /></div></div>}
-    {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
-    <label htmlFor="edit-event-help">What support is needed?</label><select id="edit-event-help" value={form.helpNeeded} onChange={(changeEvent) => setForm({ ...form, helpNeeded: changeEvent.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
-    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={contacts} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
-    {!isNoSupport(form.helpNeeded) && form.helpNeeded !== 'Need a ride' && <><label htmlFor="edit-event-helper">Confirmed person</label><select id="edit-event-helper" value={form.helper} onChange={(changeEvent) => { const contact = contacts.find((item) => item.name === changeEvent.target.value); setForm({ ...form, helper: contact?.name || '', helperPhone: contact?.phone || '', helperEmail: contact?.email || '' }) }}><option value="">No one assigned</option>{contacts.map((contact) => <option key={contact.name} value={contact.name}>{contact.name}</option>)}</select>{event.helper && !form.helper && <p className="form-note"><strong>{event.helper} will be removed from this time when you save.</strong></p>}</>}
-    {!hideLocation && <><label htmlFor="edit-event-location-choice">Where?</label><select id="edit-event-location-choice" value={form.locationChoice} onChange={(changeEvent) => { const locationChoice = changeEvent.target.value; setForm({ ...form, locationChoice, title: form.forWho === 'Mary' && event.category === 'appointment' ? locationChoice === 'home' ? 'At Home Appointment' : 'Appointment' : form.title }) }}><option value="home">Home</option><option value="location">Location</option></select>{form.locationChoice === 'location' && <><label htmlFor="edit-event-location">Location name or address</label><input id="edit-event-location" required value={form.location || ''} onChange={(changeEvent) => setForm({ ...form, location: changeEvent.target.value })} /></>}</>}
-    <label htmlFor="edit-event-details">Details {!(form.forWho === 'Mary' && event.category === 'appointment') && <span>(optional)</span>}</label><textarea id="edit-event-details" required={form.forWho === 'Mary' && event.category === 'appointment'} value={form.details} onChange={(changeEvent) => setForm({ ...form, details: changeEvent.target.value })} placeholder={form.forWho === 'Mary' && event.category === 'appointment' ? 'Example: Stretch with Cara' : defaultEventDetails} />
-    <div className="remove-area">{confirmRemove ? <div className="remove-confirm" role="alert"><p><strong>Remove this schedule item?</strong></p><div><button className="text-button" type="button" onClick={() => setConfirmRemove(false)}>Keep it</button><button className="danger-button" type="button" onClick={() => onRemove(event.id)}><Trash2 aria-hidden="true" /> Yes, remove it</button></div></div> : <button className="remove-button" type="button" onClick={() => setConfirmRemove(true)}><Trash2 aria-hidden="true" /> Remove this item</button>}</div>
-    <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid}><Check aria-hidden="true" /> Save changes</button></div>
-  </form></ModalShell>
-}
-
-function ApprovalModal({ request, onClose, onDecide }: { request: ApprovalRequest; onClose: () => void; onDecide: (decision: 'approve' | 'decline', declineReason?: string) => void }) {
-  const pending = request.status === 'pending'
-  const isPlan = Boolean(request.proposalType)
-  const [declining, setDeclining] = useState(false)
-  const [reason, setReason] = useState('')
-  return <ModalShell title={pending ? `Review ${isPlan ? 'proposed plan' : 'support request'}` : 'Request already handled'} onClose={onClose}><div className="modal-summary"><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p></div><p className="modal-intro">{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}<br />{isPlan ? request.details || 'No additional details.' : request.helpNeeded}{request.requestNote && <><br /><strong>Note or question:</strong> {request.requestNote}</>}</p>{pending ? declining ? <form onSubmit={(event) => { event.preventDefault(); if (reason.trim()) onDecide('decline', reason.trim()) }}><label htmlFor="email-decline-reason">Reason</label><textarea id="email-decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: That time does not work for us, but please try another day." autoFocus required /><div className="form-actions"><button className="text-button" type="button" onClick={() => setDeclining(false)}>Back</button><button className="danger-button" type="submit" disabled={!reason.trim()}>Decline and email</button></div></form> : <><p>Approve this {isPlan ? 'plan' : 'person'} for the schedule? It will appear on the shared calendar and they will receive an email.</p><div className="form-actions"><button className="text-button" type="button" onClick={() => setDeclining(true)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide('approve')}><Check aria-hidden="true" /> Approve {isPlan ? 'plan' : 'request'}</button></div></> : <button className="primary-button full-button" type="button" onClick={onClose}>Close</button>}</ModalShell>
-}
-
-function HelpModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Help Needed.</strong> Choose an open ride, errand, or time when Mary needs someone with her.</p></div><div><span>2</span><p><strong>Bring Food.</strong> Choose one of the open food drop-off dates shown on the calendar.</p></div><div><span>3</span><p><strong>Wait for confirmation.</strong> Requests stay private until Mary or Stu approves them.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
-}
-
-export default App
