@@ -253,6 +253,18 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .simple-settings { margin-top:22px; padding:18px; border:1px solid var(--line); border-radius:14px; background:#f8faf8; }
 .simple-settings h3 { margin:0 0 5px; color:var(--pine-dark); }
 .simple-settings>p { margin:0 0 16px; color:var(--muted); }
+.food-preferences-editor { grid-column:1/-1; }
+.food-suggestion-list { display:grid; gap:12px; margin:18px 0; }
+.food-suggestion { margin:0; padding:15px; border:1px solid var(--line); border-radius:11px; background:#fff; }
+.food-suggestion legend { padding:0 6px; color:var(--pine-dark); font-weight:850; }
+.restaurant-items { display:grid; gap:8px; margin:16px 0 6px; }
+.restaurant-items>strong { font-size:.95rem; }
+.restaurant-items>strong span { color:var(--muted); font-weight:550; }
+.inline-item { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; align-items:center; }
+.icon-text-button { border:0; background:transparent; color:#7a3d31; padding:8px; font:inherit; font-size:.84rem; font-weight:800; display:inline-flex; align-items:center; gap:5px; cursor:pointer; }
+.icon-text-button svg { width:17px; }
+.remove-suggestion { margin-top:10px; }
+.compact-button { min-height:40px!important; padding:8px 11px!important; width:max-content; }
 .family-schedule-list { display:grid; gap:7px; margin-bottom:18px; }
 .family-schedule-list button { width:100%; min-height:62px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); padding:11px 13px; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:14px; text-align:left; cursor:pointer; }
 .family-schedule-list button:hover { border-color:var(--fern); background:#fbfdfb; }
@@ -295,6 +307,18 @@ footer p { margin:0; line-height:1.5; }
 .meal-week-status.covered { border-color:#dfc98f; background:#fff8e9; color:#654e1e; }
 .meal-week-status svg { width:24px; }
 .meal-week-status p { margin:0; line-height:1.45; }
+.food-preferences-card { margin:-5px 0 22px; padding:16px; border:1px solid #b9d2bf; border-radius:12px; background:#f4f9f5; }
+.food-preferences-card h3 { margin:0 0 7px; color:var(--pine-dark); }
+.food-preferences-card>p { margin:0; color:var(--ink); line-height:1.5; }
+.food-preferences-card .food-avoid { margin-top:8px; color:#704238; }
+.food-favorites { display:grid; gap:8px; margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+.food-favorites>strong { color:var(--pine-dark); }
+.food-favorites>div { display:grid; grid-template-columns:auto 1fr; gap:8px; align-items:start; }
+.food-favorites p { margin:1px 0 0; line-height:1.4; }
+.food-favorites small { color:var(--muted); }
+.food-type-tag { padding:4px 7px; border-radius:999px; background:#dceade; color:var(--pine-dark); font-size:.7rem; font-weight:850; text-transform:capitalize; white-space:nowrap; }
+.food-type-tag.restaurant { background:#e6f1f8; color:#275f82; }
+.food-type-tag.grocery { background:#fff1d6; color:#71501b; }
 .modal-intro { color:var(--muted); font-size:1.02rem; line-height:1.55; margin:-8px 0 22px; }
 .event-detail-summary { display:grid; gap:0; border:1px solid var(--line); border-radius:13px; overflow:hidden; }
 .event-detail-summary>div { padding:15px 17px; border-bottom:1px solid var(--line); background:#fff; }
