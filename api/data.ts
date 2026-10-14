@@ -41,6 +41,9 @@ type StuWorkDefaults = {
 }
 
 type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
+type FoodPreferenceType = 'restaurant' | 'homemade' | 'grocery'
+type FoodPreference = { id: string; type: FoodPreferenceType; name: string; items: string[]; note: string }
+type FoodPreferences = { overview: string; avoid: string; suggestions: FoodPreference[] }
 type VisitSettings = { startTime: string; endTime: string }
 type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
 type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
@@ -141,6 +144,9 @@ async function ensureSchema() {
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS stu_in_town_dates TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS gabby_in_town_dates TEXT NOT NULL DEFAULT ''`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS spencer_in_town_dates TEXT NOT NULL DEFAULT ''`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_overview TEXT NOT NULL DEFAULT 'Meals are for two people. We generally enjoy whole foods with a protein, vegetables, and a grain. Chicken is our first choice. Steak or beef is welcome when it fits the dish.'`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_avoid TEXT NOT NULL DEFAULT 'No pork.'`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_suggestions TEXT NOT NULL DEFAULT '[{"id":"mendocino-farms","type":"restaurant","name":"Mendocino Farms","items":[],"note":""}]'`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
   await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
@@ -221,6 +227,28 @@ async function ensureSchema() {
 
 function clean(value: unknown, maxLength = 500) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
+}
+
+const defaultFoodPreferences: FoodPreferences = {
+  overview: 'Meals are for two people. We generally enjoy whole foods with a protein, vegetables, and a grain. Chicken is our first choice. Steak or beef is welcome when it fits the dish.',
+  avoid: 'No pork.',
+  suggestions: [{ id: 'mendocino-farms', type: 'restaurant', name: 'Mendocino Farms', items: [], note: '' }],
+}
+
+function parseFoodSuggestions(value: unknown): FoodPreference[] {
+  try {
+    const parsed = JSON.parse(String(value || '[]'))
+    if (!Array.isArray(parsed)) return defaultFoodPreferences.suggestions
+    return parsed.map((entry) => ({
+      id: clean(entry?.id, 100) || randomUUID(),
+      type: ['restaurant', 'homemade', 'grocery'].includes(entry?.type) ? entry.type as FoodPreferenceType : 'homemade',
+      name: clean(entry?.name, 160),
+      items: Array.isArray(entry?.items) ? entry.items.map((item: unknown) => clean(item, 160)).filter(Boolean).slice(0, 20) : [],
+      note: clean(entry?.note, 300),
+    })).filter((entry) => entry.name).slice(0, 30)
+  } catch {
+    return defaultFoodPreferences.suggestions
+  }
 }
 
 function organizerSession(expiration: string, secret: string) {
@@ -763,13 +791,18 @@ export default async function handler(request: VercelRequest, response: VercelRe
         startTime: String(defaultRows[0].startTime),
         endTime: String(defaultRows[0].endTime),
       } : null
-      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates" FROM food_settings WHERE singleton = TRUE`
+      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates", food_overview AS "foodOverview", food_avoid AS "foodAvoid", food_suggestions AS "foodSuggestions" FROM food_settings WHERE singleton = TRUE`
       const foodSettings: FoodSettings = foodRowsSettings.length ? {
         weekdays: String(foodRowsSettings[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
         startTime: String(foodRowsSettings[0].startTime),
         endTime: String(foodRowsSettings[0].endTime),
       } : { weekdays: [1, 3], startTime: '14:00', endTime: '18:00' }
       const visitSettings: VisitSettings = { startTime: String(foodRowsSettings[0]?.visitStartTime || '10:00'), endTime: String(foodRowsSettings[0]?.visitEndTime || '17:00') }
+      const foodPreferences: FoodPreferences = {
+        overview: String(foodRowsSettings[0]?.foodOverview || defaultFoodPreferences.overview),
+        avoid: String(foodRowsSettings[0]?.foodAvoid || defaultFoodPreferences.avoid),
+        suggestions: parseFoodSuggestions(foodRowsSettings[0]?.foodSuggestions),
+      }
       const familyInTown: FamilyInTown = { Stu: Boolean(foodRowsSettings[0]?.stuInTown ?? true), Gabby: Boolean(foodRowsSettings[0]?.gabbyInTown ?? true), Spencer: Boolean(foodRowsSettings[0]?.spencerInTown ?? false) }
       const parseDates = (value: unknown) => String(value || '').split(',').filter((date) => /^\d{8}$/.test(date))
       const familyInTownDates: FamilyInTownDates = { Stu: parseDates(foodRowsSettings[0]?.stuInTownDates), Gabby: parseDates(foodRowsSettings[0]?.gabbyInTownDates), Spencer: parseDates(foodRowsSettings[0]?.spencerInTownDates) }
@@ -791,7 +824,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           return Boolean(emailMatches || phoneMatches)
         }) === index)
         .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam, supportContacts })
+      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, foodPreferences, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam, supportContacts })
     }
 
     if (request.method !== 'POST') {
@@ -972,6 +1005,26 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ON CONFLICT (singleton) DO UPDATE SET weekdays = EXCLUDED.weekdays, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, updated_at = NOW()
       `
       return response.status(200).json({ foodSettings: { weekdays, startTime, endTime } })
+    }
+
+    if (action === 'saveFoodPreferences') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change food preferences.')
+      const overview = clean(request.body?.overview, 1200)
+      const avoid = clean(request.body?.avoid, 800)
+      const rawSuggestions: unknown[] = Array.isArray(request.body?.suggestions) ? request.body.suggestions : []
+      const suggestions: FoodPreference[] = rawSuggestions.map((entry) => {
+        const value = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {}
+        return {
+          id: clean(value.id, 100) || randomUUID(),
+          type: ['restaurant', 'homemade', 'grocery'].includes(String(value.type)) ? value.type as FoodPreferenceType : 'homemade',
+          name: clean(value.name, 160),
+          items: Array.isArray(value.items) ? value.items.map((item: unknown) => clean(item, 160)).filter(Boolean).slice(0, 20) : [],
+          note: clean(value.note, 300),
+        }
+      }).filter((entry) => entry.name).slice(0, 30)
+      if (!overview) return sendError(response, 400, 'Add a short description of what food works well.')
+      await sql`UPDATE food_settings SET food_overview = ${overview}, food_avoid = ${avoid}, food_suggestions = ${JSON.stringify(suggestions)}, updated_at = NOW() WHERE singleton = TRUE`
+      return response.status(200).json({ foodPreferences: { overview, avoid, suggestions } })
     }
 
     if (action === 'saveVisitSettings') {
@@ -1511,3 +1564,4 @@ export default async function handler(request: VercelRequest, response: VercelRe
     return sendError(response, 500, 'The shared schedule could not be reached. Please try again in a moment.')
   }
 }
+
