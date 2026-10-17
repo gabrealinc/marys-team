@@ -298,7 +298,7 @@ function sendError(response: VercelResponse, status: number, message: string) {
 }
 
 function isNoSupport(value: string) {
-  return value === 'No help needed' || value === 'No help needed, just sharing the schedule'
+  return value === 'Group event' || value === 'No help needed' || value === 'No help needed, just sharing the schedule'
 }
 
 const defaultEventDetails = 'Text Mary directly if you have any questions.'
@@ -328,7 +328,7 @@ function parseEventInput(item: Partial<TeamEventInput> | undefined) {
 
 function eventIsValid(event: ReturnType<typeof parseEventInput>) {
   const validTime = event.isFlexible ? event.time === 'anytime' && event.endTime === 'anytime' : event.endTime > event.time
-  const validDriver = !event.helper || Boolean(event.helperPhone && /^\S+@\S+\.\S+$/.test(event.helperEmail))
+  const validDriver = !event.helperEmail || /^\S+@\S+\.\S+$/.test(event.helperEmail)
   return Boolean(event.id && event.date && event.dayLabel && event.time && event.endTime && event.title && event.helpNeeded && ['Mary', 'Stu', 'Gabby', 'Spencer', 'Coco', 'Family'].includes(event.forWho) && ['appointment', 'company', 'home', 'family', 'dad'].includes(event.category) && validTime && validDriver)
 }
 
@@ -428,6 +428,18 @@ export default async function handler(request: VercelRequest, response: VercelRe
   try {
     await ensureSchema()
     const sql = database()
+    await sql`
+      UPDATE team_events SET category = 'family', for_who = 'Family',
+        title = 'ALS Walk — Join Mary’s Team', help_needed = 'Group event'
+      WHERE id = 'bf0e1e03-54b1-414b-b133-d909e988b3af'
+        AND help_needed <> 'Group event'
+    `
+    await sql`
+      DELETE FROM team_events WHERE id = 'eb4aa455-f2e3-4e64-8e81-8cf3ac65718d'
+        AND title = 'ALS Walk' AND COALESCE(helper, '') = ''
+        AND NOT EXISTS (SELECT 1 FROM support_requests WHERE event_id = team_events.id)
+        AND EXISTS (SELECT 1 FROM team_events walk WHERE walk.id = 'bf0e1e03-54b1-414b-b133-d909e988b3af' AND walk.help_needed = 'Group event')
+    `
     const isOrganizer = organizerAuthorized(request)
 
     async function reserveNotification(key: string) {
@@ -1358,22 +1370,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
           LIMIT 1
         `
         if (conflicts.length) return sendError(response, 409, 'Mary has an appointment during that time. Please choose another time or date.')
-      }
-      if (type === 'stop_by') {
-        const dateKey = date.replaceAll('-', '')
-        const conflicts = await sql`
-          SELECT team_events.id FROM team_events
-          WHERE SUBSTRING(event_date, 1, 8) = ${dateKey}
-            AND (
-              is_proposed = FALSE
-              OR EXISTS (
-                SELECT 1 FROM support_requests
-                WHERE support_requests.event_id = team_events.id AND support_requests.status = 'pending'
-              )
-            )
-          LIMIT 1
-        `
-        if (conflicts.length) return sendError(response, 409, 'That day already has something scheduled. Stop By requests are available only on completely open days.')
       }
 
       const eventId = randomUUID()

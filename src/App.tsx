@@ -31,7 +31,8 @@ const availabilityTimes = [
 ]
 
 const helpChoices = ['Driving or giving a ride', 'Company or a friendly check-in', 'Home projects or errands', 'Bringing a meal', 'Pet care or errands', 'Anything that would be useful']
-const supportChoices = ['Need a ride', 'Spend time with Mary', 'Support at home or with an errand', 'Help with Coco', 'No help needed']
+const alsWalkUrl = 'https://secure.alsaz.org/site/TR/Endurance/General?pg=team&team_id=4912&fr_id=1200'
+const supportChoices = ['Group event', 'Need a ride', 'Spend time with Mary', 'Support at home or with an errand', 'Help with Coco', 'No help needed']
 const maryAppointmentChoices = ['At Home Appointment', 'Appointment']
 const defaultEventDetails = 'Text Mary directly if you have any questions.'
 const whoChoices: ForWho[] = ['Mary', 'Stu', 'Gabby', 'Spencer', 'Coco', 'Family']
@@ -90,7 +91,7 @@ function addMinutes(value: string, amount: number) {
 }
 
 function isNoSupport(value: string) {
-  return value === 'No help needed' || value === 'No help needed, just sharing the schedule'
+  return value === 'Group event' || value === 'No help needed' || value === 'No help needed, just sharing the schedule'
 }
 
 function shouldShowEventLocation(event: Pick<TeamEvent, 'location' | 'helpNeeded'>) {
@@ -141,18 +142,6 @@ function availabilityMatchesTime(slot: string, eventTime: string, eventEndTime?:
 function matchingAvailability(event: TeamEvent, availability: Availability[]) {
   if (isNoSupport(event.helpNeeded)) return []
   return availability.filter((entry) => event.isFlexible || (entry.day === event.date.slice(0, 8) && availabilityMatchesTime(entry.time, event.time, event.endTime)))
-}
-
-function availableDriverContacts(date: string, time: string, endTime: string, availability: Availability[], events: TeamEvent[]) {
-  const dateKey = date.replaceAll('-', '').slice(0, 8)
-  const pastContacts = events.filter((event) => event.helper).map((event) => ({ name: event.helper || '', phone: event.helperPhone || '', email: event.helperEmail || '' }))
-  const contacts = availability
-    .filter((entry) => entry.day === dateKey && availabilityMatchesTime(entry.time, time, endTime))
-    .map((entry) => {
-      const prior = pastContacts.find((contact) => phoneKey(contact.phone) && phoneKey(contact.phone) === phoneKey(entry.phone)) || pastContacts.find((contact) => contact.name.trim().toLocaleLowerCase() === entry.name.trim().toLocaleLowerCase())
-      return { name: entry.name, phone: entry.phone, email: prior?.email || '' }
-    })
-  return contacts.filter((contact, index) => contacts.findIndex((item) => phoneKey(item.phone) ? phoneKey(item.phone) === phoneKey(contact.phone) : item.name.toLocaleLowerCase() === contact.name.toLocaleLowerCase()) === index)
 }
 
 function confirmedContacts(events: TeamEvent[]) {
@@ -237,7 +226,8 @@ function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEv
   return [
     ...marySupport,
     ...events.filter((event) => event.proposalType === 'food' && (event.helper || event.requestPending)),
-    ...events.filter((event) => event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && !event.isFlexible),
+    ...events.filter((event) => event.helpNeeded === 'Group event'),
+    ...events.filter((event) => event.helpNeeded !== 'Group event' && event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && !event.isFlexible),
   ].sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
 }
 
@@ -680,6 +670,7 @@ function App() {
         <div className="header-tools"><button className="family-access-button" type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /><span>Edit &amp; Approve</span>{organizer && pendingRequests.length > 0 && <strong aria-label={`${pendingRequests.length} requests waiting`}>{pendingRequests.length}</strong>}</button><button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> <span>How to use this page</span></button></div>
       </header>
       <main id="top">
+        {teamEvents.filter((event) => event.helpNeeded === 'Group event' && event.date.slice(0, 8) >= localDateInputValue().replaceAll('-', '')).map((event) => <section className="group-event-banner" key={event.id} aria-label="Community group event"><div><p className="eyebrow">Group event · Everyone is welcome</p><h2>{event.title}</h2><p>{event.dayLabel} · {eventTimeRangeLabel(event)}</p>{event.location && <p>{event.location}</p>}<p>Come walk with Mary’s Team. Register on the official ALS team page to join us.</p></div><a className="primary-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Sign up for the ALS walk</a></section>)}
         <section className="welcome" aria-labelledby="page-title">
           <div><p className="eyebrow">Family schedule and support</p><h1 id="page-title">The Greenbergs’ Schedule</h1><p className="intro">See what’s coming up and sign up where support is needed.</p></div>
           <div className="quick-actions" role="group" aria-label="Page actions">
@@ -723,11 +714,11 @@ function App() {
       {signupEvent && <SignupModal event={signupEvent} onClose={() => setSignupEvent(null)} onSave={saveHelper} />}
       {viewingEvent && <EventDetailsModal event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} onAssign={() => { setViewingEvent(null); setAssigningEvent(viewingEvent) }} />}
       {assigningEvent && <AssignCoverageModal event={assigningEvent} contacts={knownContacts(teamEvents, availability, [...careTeam.map((member) => ({ name: member.name, phone: member.phone, email: member.email })), ...supportContacts.map((contact) => ({ name: contact.name, phone: contact.phone, email: contact.email }))])} onClose={() => setAssigningEvent(null)} onAssign={(contact) => assignCalculatedCoverage(assigningEvent, contact)} />}
-      {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
+      {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
       {showPlanRequest && <PlanRequestModal type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => (phoneKey(editingAvailability.phone) ? phoneKey(entry.phone) === phoneKey(editingAvailability.phone) : entry.name.trim().toLocaleLowerCase() === editingAvailability.name.trim().toLocaleLowerCase()) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
-      {showAdd && <AddEventModal initialForWho={addForWho} availability={availability} events={teamEvents} onClose={() => setShowAdd(false)} onSave={saveEvents} />}
+      {showAdd && <AddEventModal initialForWho={addForWho} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => setShowAdd(false)} onSave={saveEvents} />}
       {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} onClose={() => setBusyPerson(null)} onSave={(dates, startTime, endTime) => saveFamilyBusyDates(busyPerson, dates, startTime, endTime)} />}
       {inTownDatesPerson && <FamilyInTownDatesModal person={inTownDatesPerson} selectedDates={familyInTownDates[inTownDatesPerson]} onClose={() => setInTownDatesPerson(null)} onSave={(dates) => saveFamilyInTownDates(inTownDatesPerson, dates)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
@@ -788,7 +779,7 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
             <strong>{eventDisplayTitle(event)}</strong>
             {eventDisplayTitle(event) !== event.title && <small>{eventDisplayDetails(event)}</small>}
             <small>{eventTimeRangeLabel(event)}</small>
-            <em>{event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em>
+            <em>{event.helpNeeded === 'Group event' ? 'Group event · Everyone is welcome' : event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em>
           </span>
         </button>) : <p>Not available.</p>}
       </div>
@@ -839,7 +830,7 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
       })}</div>
     </div>
     {selectedDay && <ModalShell title={selectedDay.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} onClose={() => setSelectedDateKey('')}>
-      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{eventDisplayTitle(event)}</strong><small>{eventTimeRangeLabel(event)}</small><em>{event.publicAction === 'stop_by' ? 'Choose a time to stop by' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
+      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{eventDisplayTitle(event)}</strong><small>{eventTimeRangeLabel(event)}</small><em>{event.helpNeeded === 'Group event' ? 'Group event · Everyone is welcome' : event.publicAction === 'stop_by' ? 'Choose a time to stop by' : isNoSupport(event.helpNeeded) ? 'Busy' : event.helper ? `Confirmed with ${event.helper}` : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
     </ModalShell>}
   </>
 }
@@ -888,7 +879,7 @@ function SupportContactModal({ onClose, onSave }: { onClose: () => void; onSave:
 function GoFundMeModal({ onClose }: { onClose: () => void }) {
   return <ModalShell title="Thank you for being part of Mary’s Team" onClose={onClose}>
     <p className="modal-intro">Your contact information was added. If you would like another way to support Mary and the family, you can visit Mary’s GoFundMe.</p>
-    <a className="primary-button full-button" href="https://www.gofundme.com/f/support-mary-greenberg?utm_source=ig&amp;utm_medium=social&amp;utm_content=link_in_bio&amp;utm_id=97760_v0_s00_e0_tv3" target="_blank" rel="noreferrer">Visit Mary’s GoFundMe</a>
+    <a className="primary-button full-button" href="https://www.gofundme.com/f/support-mary-greenberg?utm_source=ig&amp;utm_medium=social&amp;utm_content=link_in_bio&amp;utm_id=97760_v0_s00_e0_tv3" target="_blank" rel="noreferrer">Visit Mary’s GoFundMe</a><p>Walk with Mary’s Team. Everyone is welcome to join.</p><a className="secondary-button full-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Sign up for the ALS walk</a>
     <button className="text-button full-button" type="button" onClick={onClose}>Not now</button>
   </ModalShell>
 }
@@ -897,7 +888,7 @@ function EventDetailsModal({ event, organizer, availability, onClose, onEdit, on
   return <ModalShell title={eventDisplayTitle(event)} onClose={onClose}>
     <div className="event-detail-summary">
       <div><small>When</small><strong>{event.dayLabel}<br />{eventTimeRangeLabel(event)}</strong></div>
-      <div><small>{event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Busy – please do not stop by' : event.helpNeeded}</strong></div>
+      <div><small>{event.helpNeeded === 'Group event' ? 'Open to everyone' : event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.helpNeeded === 'Group event' ? 'Join Mary’s Team at the ALS walk' : event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Busy – please do not stop by' : event.helpNeeded}</strong></div>
       {shouldShowEventLocation(event) && <div><small>Where</small><strong>{event.location}</strong></div>}
       <div><small>Details</small><p>{eventDisplayDetails(event)}</p></div>
       {event.helper && <div><small>Confirmed</small><strong>{event.helper}</strong>{(event.helperEmail || event.helperPhone) && <span className="compact-contact">{event.helperEmail && <a href={`mailto:${event.helperEmail}`}>{event.helperEmail}</a>}{event.helperPhone && <a href={`tel:${event.helperPhone}`}>{event.helperPhone}</a>}</span>}</div>}
@@ -905,6 +896,7 @@ function EventDetailsModal({ event, organizer, availability, onClose, onEdit, on
       {organizer && !event.helper && availability.length > 0 && <div><small>People who may be available</small><div className="compact-contact-list">{availability.slice(0, 8).map((entry) => <span key={entry.id}><strong>{entry.name}</strong><small>{event.isFlexible ? `${availabilityDayLabel(entry.day)}, ${availabilityTimeLabel(entry.time)}` : availabilityTimeLabel(entry.time)}</small><a href={`sms:${entry.phone}`}>Text {entry.phone}</a></span>)}</div></div>}
     </div>
     {event.isCalculatedCoverage && organizer && <p className="form-note">This time is calculated from the family schedules. Edit the individual family members’ work or away entries to change it.</p>}
+    {event.helpNeeded === 'Group event' && <><p className="form-note">Everyone is welcome. Sign up on the official ALS team page to let the team know you are going.</p><a className="primary-button full-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Join the ALS walk</a></>}
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && event.isCalculatedCoverage && !event.helper && <button className="primary-button" type="button" onClick={onAssign}><Users aria-hidden="true" /> Assign someone</button>}{organizer && !event.isCalculatedCoverage && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
   </ModalShell>
 }
@@ -1257,17 +1249,17 @@ function DriverFields({ contacts, driver, onChange }: { contacts: DriverContact[
     else onChange({ name: '', phone: '', email: '' })
   }
   return <div className="driver-fields">
-    <label htmlFor="ride-driver">Who is driving?</label>
+    <label htmlFor="ride-driver">Who is confirmed?</label>
     <select id="ride-driver" value={choice} onChange={(event) => choose(event.target.value)}>
-      <option value="open">Still need a driver</option>
+      <option value="open">No one assigned yet</option>
       {contacts.map((contact, index) => <option value={`contact:${index}`} key={`${contact.name}-${contact.phone}`}>{contact.name}</option>)}
-      <option value="manual">Someone else has agreed</option>
+      <option value="manual">Someone new</option>
     </select>
-    {choice !== 'open' && <><div className="field-row"><div><label htmlFor="driver-name">Driver’s name</label><input id="driver-name" required value={driver.name} onChange={(event) => onChange({ ...driver, name: event.target.value })} /></div><div><label htmlFor="driver-phone">Phone number</label><input id="driver-phone" type="tel" required value={driver.phone} onChange={(event) => onChange({ ...driver, phone: event.target.value })} autoComplete="tel" /></div></div><label htmlFor="driver-email">Email address</label><input id="driver-email" type="email" required value={driver.email} onChange={(event) => onChange({ ...driver, email: event.target.value })} autoComplete="email" placeholder="Needed to send confirmation" /><p className="form-note">This person will receive a confirmation email with the appointment details and destination.</p></>}
+    {choice === 'manual' && <><div className="field-row"><div><label htmlFor="driver-name">Driver’s name</label><input id="driver-name" required value={driver.name} onChange={(event) => onChange({ ...driver, name: event.target.value })} /></div><div><label htmlFor="driver-phone">Phone number</label><input id="driver-phone" type="tel" value={driver.phone} onChange={(event) => onChange({ ...driver, phone: event.target.value })} autoComplete="tel" /></div></div><label htmlFor="driver-email">Email address</label><input id="driver-email" type="email" value={driver.email} onChange={(event) => onChange({ ...driver, email: event.target.value })} autoComplete="email" placeholder="Needed to send confirmation" /><p className="form-note">If an email is provided, this person will receive the event details.</p></>}
   </div>
 }
 
-function AddEventModal({ initialForWho, availability, events, onClose, onSave }: { initialForWho: ForWho; availability: Availability[]; events: TeamEvent[]; onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
+function AddEventModal({ initialForWho, availability, events, savedContacts, onClose, onSave }: { initialForWho: ForWho; availability: Availability[]; events: TeamEvent[]; savedContacts: DriverContact[]; onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
   const [form, setForm] = useState(() => ({ title: initialForWho === 'Mary' ? 'At Home Appointment' : '', date: localDateInputValue(), time: '12:00', endTime: '13:00', forWho: initialForWho, helpNeeded: initialForWho === 'Mary' ? 'No help needed' : needsTimeWithMary(initialForWho) ? 'Spend time with Mary' : 'Need a ride', details: '', locationChoice: initialForWho === 'Mary' ? 'home' : 'location', location: '', helper: '', helperPhone: '', helperEmail: '', isFlexible: false }))
   const [repeats, setRepeats] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1295,7 +1287,7 @@ function AddEventModal({ initialForWho, availability, events, onClose, onSave }:
       cursor.setDate(cursor.getDate() + 7)
     }
     const repeatGroupId = repeats ? crypto.randomUUID() : undefined
-    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, title: form.title, details: form.details.trim() || defaultEventDetails, location: hideLocation ? undefined : form.locationChoice === 'home' ? 'Home' : form.location || undefined, helpNeeded: form.helpNeeded, helper: form.helpNeeded === 'Need a ride' ? form.helper || undefined : undefined, helperPhone: form.helpNeeded === 'Need a ride' ? form.helperPhone || undefined : undefined, helperEmail: form.helpNeeded === 'Need a ride' ? form.helperEmail || undefined : undefined, repeatGroupId: form.isFlexible ? undefined : repeatGroupId, isFlexible: form.isFlexible }))
+    const events = dates.map((date) => ({ id: crypto.randomUUID(), category: form.forWho === 'Mary' ? 'appointment' as const : 'family' as const, forWho: form.forWho, date: compactEventDate(date, form.isFlexible ? '00:00' : form.time), dayLabel: form.isFlexible ? 'Anytime' : dayLabelForDate(date), time: form.isFlexible ? 'anytime' : form.time, endTime: form.isFlexible ? 'anytime' : form.endTime, title: form.title, details: form.details.trim() || defaultEventDetails, location: hideLocation ? undefined : form.locationChoice === 'home' ? 'Home' : form.location || undefined, helpNeeded: form.helpNeeded, helper: !isNoSupport(form.helpNeeded) ? form.helper || undefined : undefined, helperPhone: !isNoSupport(form.helpNeeded) ? form.helperPhone || undefined : undefined, helperEmail: !isNoSupport(form.helpNeeded) ? form.helperEmail || undefined : undefined, repeatGroupId: form.isFlexible ? undefined : repeatGroupId, isFlexible: form.isFlexible }))
     setSaving(true)
     const saved = await onSave(events)
     if (!saved) setSaving(false)
@@ -1310,23 +1302,23 @@ function AddEventModal({ initialForWho, availability, events, onClose, onSave }:
     {!form.isFlexible && <label className="repeat-toggle"><input type="checkbox" checked={repeats} onChange={(event) => setRepeats(event.target.checked)} /><span><Repeat2 aria-hidden="true" /><strong>Repeat every week</strong><small>Add this on the same weekday each week.</small></span></label>}
     {!form.isFlexible && repeats && <><label htmlFor="repeat-through">Repeat through</label><input id="repeat-through" type="date" min={form.date} value={repeatThrough < form.date ? form.date : repeatThrough} onChange={(event) => setRepeatThrough(event.target.value)} /></>}
     <label htmlFor="event-help">What support is needed?</label><select id="event-help" value={form.helpNeeded} onChange={(event) => setForm({ ...form, helpNeeded: event.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
-    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={availableDriverContacts(form.date, form.time, form.endTime, availability, events)} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
+    {!isNoSupport(form.helpNeeded) && <DriverFields contacts={knownContacts(events, availability, savedContacts)} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
     {!hideLocation && <><label htmlFor="event-location-choice">Where?</label><select id="event-location-choice" value={form.locationChoice} onChange={(event) => { const locationChoice = event.target.value; setForm({ ...form, locationChoice, title: form.forWho === 'Mary' ? locationChoice === 'home' ? 'At Home Appointment' : 'Appointment' : form.title, helpNeeded: form.forWho === 'Mary' ? locationChoice === 'home' ? 'No help needed' : 'Need a ride' : form.helpNeeded }) }}><option value="home">Home</option><option value="location">Location</option></select>{form.locationChoice === 'location' && <><label htmlFor="event-location">Location name or address</label><input id="event-location" required value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} placeholder="Example: Mayo Clinic, 13400 E Shea Blvd" /></>}</>}
     <label htmlFor="event-details">Details {form.forWho !== 'Mary' && <span>(optional)</span>}</label><textarea id="event-details" required={form.forWho === 'Mary'} value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder={form.forWho === 'Mary' ? 'Example: Stretch with Cara' : defaultEventDetails} />
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid || saving} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : repeats ? 'Add weekly schedule' : 'Add to the schedule'}</button></div>
   </form></ModalShell>
 }
 
-function EditEventModal({ event, availability, events, onClose, onSave, onRemove }: { event: TeamEvent; availability: Availability[]; events: TeamEvent[]; onClose: () => void; onSave: (event: TeamEvent) => void; onRemove: (eventId: string) => void }) {
+function EditEventModal({ event, availability, events, savedContacts, onClose, onSave, onRemove }: { event: TeamEvent; availability: Availability[]; events: TeamEvent[]; savedContacts: DriverContact[]; onClose: () => void; onSave: (event: TeamEvent) => void; onRemove: (eventId: string) => void }) {
   const date = `${event.date.slice(0, 4)}-${event.date.slice(4, 6)}-${event.date.slice(6, 8)}`
   const isMaryAppointment = event.forWho === 'Mary' && event.category === 'appointment'
   const originalTitleIsStandard = maryAppointmentChoices.includes(event.title)
   const startsAtHome = event.location?.trim().toLocaleLowerCase() === 'home' || event.title.toLocaleLowerCase().includes('at home')
-  const [form, setForm] = useState({ ...event, title: isMaryAppointment ? startsAtHome ? 'At Home Appointment' : 'Appointment' : event.title, details: isMaryAppointment && !originalTitleIsStandard && event.details === defaultEventDetails ? event.title : event.details, locationChoice: startsAtHome ? 'home' : 'location', location: startsAtHome ? '' : event.location || '', helper: event.helper || '', helperPhone: event.helperPhone || '', helperEmail: event.helperEmail || '', date, endTime: event.endTime || addHour(event.time), helpNeeded: isNoSupport(event.helpNeeded) ? 'No help needed' : event.helpNeeded })
+  const [form, setForm] = useState({ ...event, title: isMaryAppointment ? startsAtHome ? 'At Home Appointment' : 'Appointment' : event.title, details: isMaryAppointment && !originalTitleIsStandard && event.details === defaultEventDetails ? event.title : event.details, locationChoice: startsAtHome ? 'home' : 'location', location: startsAtHome ? '' : event.location || '', helper: event.helper || '', helperPhone: event.helperPhone || '', helperEmail: event.helperEmail || '', date, endTime: event.endTime || addHour(event.time), helpNeeded: event.helpNeeded === 'Group event' ? 'Group event' : isNoSupport(event.helpNeeded) ? 'No help needed' : event.helpNeeded })
   const [confirmRemove, setConfirmRemove] = useState(false)
   const timeIsValid = form.isFlexible || form.endTime > form.time
   const hideLocation = form.helpNeeded === 'Spend time with Mary'
-  const contacts = knownContacts(events, availability)
+  const contacts = knownContacts(events, availability, savedContacts)
 
   function submit(submitEvent: React.FormEvent) {
     submitEvent.preventDefault()
@@ -1341,8 +1333,8 @@ function EditEventModal({ event, availability, events, onClose, onSave, onRemove
     {!form.isFlexible && <div className="field-row"><div><label htmlFor="edit-event-time">Starts</label><input id="edit-event-time" type="time" required value={form.time} onChange={(changeEvent) => setForm({ ...form, time: changeEvent.target.value, endTime: addHour(changeEvent.target.value) })} /></div><div><label htmlFor="edit-event-end-time">Ends</label><input id="edit-event-end-time" type="time" required value={form.endTime} onChange={(changeEvent) => setForm({ ...form, endTime: changeEvent.target.value })} /></div></div>}
     {!timeIsValid && <p className="field-error" role="alert">Choose an ending time that is later than the starting time.</p>}
     <label htmlFor="edit-event-help">What support is needed?</label><select id="edit-event-help" value={form.helpNeeded} onChange={(changeEvent) => setForm({ ...form, helpNeeded: changeEvent.target.value })}>{supportChoices.map((choice) => <option key={choice}>{choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
-    {form.helpNeeded === 'Need a ride' && !form.isFlexible && <DriverFields contacts={contacts} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
-    {!isNoSupport(form.helpNeeded) && form.helpNeeded !== 'Need a ride' && <><label htmlFor="edit-event-helper">Confirmed person</label><select id="edit-event-helper" value={form.helper} onChange={(changeEvent) => { const contact = contacts.find((item) => item.name === changeEvent.target.value); setForm({ ...form, helper: contact?.name || '', helperPhone: contact?.phone || '', helperEmail: contact?.email || '' }) }}><option value="">No one assigned</option>{contacts.map((contact) => <option key={contact.name} value={contact.name}>{contact.name}</option>)}</select>{event.helper && !form.helper && <p className="form-note"><strong>{event.helper} will be removed from this time when you save.</strong></p>}</>}
+    {!isNoSupport(form.helpNeeded) && <DriverFields contacts={contacts} driver={{ name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email })} />}
+
     {!hideLocation && <><label htmlFor="edit-event-location-choice">Where?</label><select id="edit-event-location-choice" value={form.locationChoice} onChange={(changeEvent) => { const locationChoice = changeEvent.target.value; setForm({ ...form, locationChoice, title: form.forWho === 'Mary' && event.category === 'appointment' ? locationChoice === 'home' ? 'At Home Appointment' : 'Appointment' : form.title }) }}><option value="home">Home</option><option value="location">Location</option></select>{form.locationChoice === 'location' && <><label htmlFor="edit-event-location">Location name or address</label><input id="edit-event-location" required value={form.location || ''} onChange={(changeEvent) => setForm({ ...form, location: changeEvent.target.value })} /></>}</>}
     <label htmlFor="edit-event-details">Details {!(form.forWho === 'Mary' && event.category === 'appointment') && <span>(optional)</span>}</label><textarea id="edit-event-details" required={form.forWho === 'Mary' && event.category === 'appointment'} value={form.details} onChange={(changeEvent) => setForm({ ...form, details: changeEvent.target.value })} placeholder={form.forWho === 'Mary' && event.category === 'appointment' ? 'Example: Stretch with Cara' : defaultEventDetails} />
     <div className="remove-area">{confirmRemove ? <div className="remove-confirm" role="alert"><p><strong>Remove this schedule item?</strong></p><div><button className="text-button" type="button" onClick={() => setConfirmRemove(false)}>Keep it</button><button className="danger-button" type="button" onClick={() => onRemove(event.id)}><Trash2 aria-hidden="true" /> Yes, remove it</button></div></div> : <button className="remove-button" type="button" onClick={() => setConfirmRemove(true)}><Trash2 aria-hidden="true" /> Remove this item</button>}</div>

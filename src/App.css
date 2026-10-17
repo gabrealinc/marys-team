@@ -526,3 +526,8 @@ textarea { min-height:95px; resize:vertical; }
   .event-card { break-inside:avoid; box-shadow:none; grid-template-columns:180px 1fr; min-height:auto; }
   .event-info,.event-date { padding:14px; }
 }
+
+.group-event-banner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px; margin: 24px 0; border: 1px solid #d4c7b3; border-radius: 20px; background: #fff8ec; }
+.group-event-banner h2 { margin: 8px 0; }
+.group-event-banner .primary-button { flex-shrink: 0; }
+@media (max-width: 640px) { .group-event-banner { flex-direction: column; align-items: stretch; padding: 20px; } }
