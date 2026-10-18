@@ -2,6 +2,7 @@ import { neon } from '@neondatabase/serverless'
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { sendTeamNotification } from '../lib/email.js'
+import { defaultVisitorPreferences, nurseOnDate } from '../lib/care.js'
 
 type Category = 'appointment' | 'company' | 'home' | 'family' | 'dad'
 
@@ -136,6 +137,7 @@ async function ensureSchema() {
     )
   `
   await sql`INSERT INTO food_settings (singleton, weekdays, start_time, end_time) VALUES (TRUE, '1,3', '14:00', '18:00') ON CONFLICT (singleton) DO NOTHING`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS visitor_preferences TEXT`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS visit_start_time TEXT NOT NULL DEFAULT '10:00'`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS visit_end_time TEXT NOT NULL DEFAULT '17:00'`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS stu_in_town BOOLEAN NOT NULL DEFAULT TRUE`
@@ -148,7 +150,7 @@ async function ensureSchema() {
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_avoid TEXT NOT NULL DEFAULT 'No pork.'`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_suggestions TEXT NOT NULL DEFAULT '[{"id":"mendocino-farms","type":"restaurant","name":"Mendocino Farms","items":[],"note":""}]'`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
-  await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.'`
+  await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.' OR details = 'Text Mary directly if you have any questions.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
   await sql`UPDATE team_events SET for_who = 'Stu' WHERE category = 'dad' AND for_who = 'Family'`
   await sql`
@@ -301,7 +303,7 @@ function isNoSupport(value: string) {
   return value === 'Group event' || value === 'No help needed' || value === 'No help needed, just sharing the schedule'
 }
 
-const defaultEventDetails = 'Text Mary directly if you have any questions.'
+const defaultEventDetails = 'Please sign up through this website and wait for confirmation. No social visits or drop-ins. Thank you for respecting any schedule changes.'
 
 function parseEventInput(item: Partial<TeamEventInput> | undefined) {
   const forWho = clean(item?.forWho, 30)
@@ -496,14 +498,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return emailSent
     }
 
-    async function notifySupportDecision(supportRequest: Record<string, unknown>, decision: 'approve' | 'decline', _declineReason = '') {
+    async function notifySupportDecision(supportRequest: Record<string, unknown>, decision: 'approve' | 'decline', declineReason = '') {
       const email = String(supportRequest.requesterEmail || '')
       if (!email) return false
       const approved = decision === 'approve'
       const proposalType = String(supportRequest.proposalType || '')
       const isPlan = proposalType === 'food' || proposalType === 'stop_by'
       const savedLocation = String(supportRequest.location || '')
-      const approvedLocation = savedLocation.toLocaleLowerCase() === 'home'
+      const approvedLocation = proposalType === 'food' || savedLocation.toLocaleLowerCase() === 'home'
         ? String(process.env.HOME_ADDRESS || 'Mary and Stu’s home')
         : savedLocation
       if (!approved) {
@@ -511,7 +513,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         return notifyOnce(`decision:${String(supportRequest.id)}:${decision}`, {
           subject: "Mary's Team: Mary's schedule has changed",
           heading: "Mary's schedule has changed",
-          intro: `${name ? `${name}, ` : ''}Mary no longer needs help at the scheduled time below. Thank you so much for your support. We will reach out when new times for help become available. If you would still like to help, please share Mary’s GoFundMe with friends and family.`,
+          intro: `${name ? `${name}, ` : ''}Mary no longer needs help at the scheduled time below. Thank you so much for your support. ${declineReason ? `Reason: ${declineReason} ` : ''}Please do not come to the home for this cancelled time; Mary is not receiving visitors. New practical support opportunities will appear on the website. If you would still like to help, please share Mary’s GoFundMe with friends and family.`,
           rows: [
             { label: 'Schedule item', value: String(supportRequest.title) },
             { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.requestStartTime || supportRequest.time))} to ${readableTime(String(supportRequest.requestEndTime || supportRequest.endTime))}` },
@@ -523,7 +525,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return notifyOnce(`decision:${String(supportRequest.id)}:${decision}`, {
         subject: "Mary's Team: your request was approved",
         heading: 'You are confirmed',
-        intro: `Thank you for being part of Mary’s Team. Mary or Stu approved your ${isPlan ? 'proposed plan' : 'request'}.`,
+        intro: `Thank you for being part of Mary’s Team. The family approved your ${proposalType === 'food' ? 'food drop-off. Please leave the food at your selected drop-off location; this does not include a social visit' : 'practical support request. Please provide only the agreed support'}. Please respect any later changes or cancellations.`,
         rows: [
           { label: 'Schedule item', value: String(supportRequest.title) },
           { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.requestStartTime || supportRequest.time))} to ${readableTime(String(supportRequest.requestEndTime || supportRequest.endTime))}` },
@@ -568,7 +570,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return notifyOnce(`assignment-removed:${event.id}:${email}:${event.date}:${event.time}:${event.endTime}`, {
         subject: "Mary's Team: Mary's schedule has changed",
         heading: "Mary's schedule has changed",
-        intro: `${name ? `${name}, ` : ''}Mary no longer needs help at the scheduled time below. Thank you so much for your support. We will reach out when new times for help become available. If you would still like to help, please share Mary’s GoFundMe with friends and family.`,
+        intro: `${name ? `${name}, ` : ''}Mary no longer needs help at the scheduled time below. Thank you so much for your support. Please do not come to the home for this cancelled time; Mary is not receiving visitors. New practical support opportunities will appear on the website. If you would still like to help, please share Mary’s GoFundMe with friends and family.`,
         rows: [
           { label: 'Schedule item', value: event.title },
           { label: 'When', value: event.isFlexible ? 'Anytime' : `${event.dayLabel} from ${readableTime(event.time)} to ${readableTime(event.endTime)}` },
@@ -803,7 +805,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         startTime: String(defaultRows[0].startTime),
         endTime: String(defaultRows[0].endTime),
       } : null
-      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates", food_overview AS "foodOverview", food_avoid AS "foodAvoid", food_suggestions AS "foodSuggestions" FROM food_settings WHERE singleton = TRUE`
+      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates", visitor_preferences AS "visitorPreferences", food_overview AS "foodOverview", food_avoid AS "foodAvoid", food_suggestions AS "foodSuggestions" FROM food_settings WHERE singleton = TRUE`
       const foodSettings: FoodSettings = foodRowsSettings.length ? {
         weekdays: String(foodRowsSettings[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
         startTime: String(foodRowsSettings[0].startTime),
@@ -820,23 +822,26 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const familyInTownDates: FamilyInTownDates = { Stu: parseDates(foodRowsSettings[0]?.stuInTownDates), Gabby: parseDates(foodRowsSettings[0]?.gabbyInTownDates), Spencer: parseDates(foodRowsSettings[0]?.spencerInTownDates) }
       const careRows = await sql`SELECT id, name, phone, email, role, weekdays, start_time AS "startTime", end_time AS "endTime", auto_assign AS "autoAssign" FROM care_team ORDER BY name ASC`
       const careTeam = careRows.map((row) => ({ ...row, weekdays: String(row.weekdays || '').split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6), phone: isOrganizer ? row.phone : '', email: isOrganizer ? row.email : '' })) as CareTeamMember[]
+      const nurseEvents: Record<string, unknown>[] = []
+      const firstDay = phoenixToday()
+      for (let offset = 0; offset < 62; offset++) {
+        const date = new Date(`${firstDay}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + offset)
+        const key = date.toISOString().slice(0, 10).replaceAll('-', '')
+        for (const nurse of careTeam.filter((member) => nurseOnDate(member, key))) {
+          nurseEvents.push({ id: `nurse:${nurse.id}:${key}`, category: 'appointment', forWho: 'Mary', date: `${key}T${nurse.startTime.replace(':', '')}00`, dayLabel: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }), time: nurse.startTime, endTime: nurse.endTime, title: 'Nurse with Mary', details: 'Care is covered during this time. No visitors or drop-ins, please.', helpNeeded: 'No help needed', helper: isOrganizer ? nurse.name : 'Nurse', scheduleSource: 'nurse_coverage' })
+        }
+      }
       const savedSupportContacts = isOrganizer ? await sql`SELECT id, name, phone, email, 'contact_list' AS source, created_at AS "createdAt" FROM support_contacts ORDER BY created_at DESC` : []
       const requestContacts = isOrganizer ? await sql`
-        SELECT DISTINCT ON (LOWER(requester_email), requester_phone)
+        SELECT DISTINCT ON (LOWER(TRIM(requester_name)), LOWER(requester_email), requester_phone)
           id, requester_name AS name, requester_phone AS phone, requester_email AS email,
           'request' AS source, created_at AS "createdAt"
         FROM support_requests
         WHERE TRIM(requester_name) <> '' AND (TRIM(requester_phone) <> '' OR TRIM(requester_email) <> '')
-        ORDER BY LOWER(requester_email), requester_phone, created_at DESC
+        ORDER BY LOWER(TRIM(requester_name)), LOWER(requester_email), requester_phone, created_at DESC
       ` : []
       const supportContacts = [...savedSupportContacts, ...requestContacts]
-        .filter((contact, index, contacts) => contacts.findIndex((item) => {
-          const emailMatches = String(contact.email || '').trim() && String(item.email || '').trim().toLocaleLowerCase() === String(contact.email || '').trim().toLocaleLowerCase()
-          const phoneMatches = String(contact.phone || '').replace(/\D/g, '') && String(item.phone || '').replace(/\D/g, '') === String(contact.phone || '').replace(/\D/g, '')
-          return Boolean(emailMatches || phoneMatches)
-        }) === index)
-        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))
-      return response.status(200).json({ events: publicEvents, availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, foodPreferences, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam, supportContacts })
+      return response.status(200).json({ events: [...publicEvents.map((event) => { const nurse = careTeam.find((member) => member.role === 'Nurse' && String(event.helper || '').trim().toLowerCase() === member.name.trim().toLowerCase()); return nurse && !String(event.helpNeeded).toLowerCase().includes('ride') ? { ...event, title: 'Nurse with Mary', details: 'Care is covered during this time. No visitors or drop-ins, please.', helpNeeded: 'No help needed', forWho: 'Mary', helper: isOrganizer ? nurse.name : 'Nurse' } : event }), ...nurseEvents], visitorPreferences: String(foodRowsSettings[0]?.visitorPreferences ?? defaultVisitorPreferences), availability: publicAvailability, organizer: isOrganizer, stuWorkDefaults, foodSettings, foodPreferences, visitSettings, familyInTown, familyInTownDates, foodReservedDates, careTeam, supportContacts })
     }
 
     if (request.method !== 'POST') {
@@ -1039,6 +1044,42 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ foodPreferences: { overview, avoid, suggestions } })
     }
 
+    if (action === 'saveVisitorPreferences') {
+      if (!isOrganizer) return sendError(response, 401, 'Family access is required.')
+      const text = clean(request.body?.text, 4000)
+      if (!text) return sendError(response, 400, 'Please enter visitor preferences.')
+      await sql`UPDATE food_settings SET visitor_preferences = ${text}, updated_at = NOW() WHERE singleton = TRUE`
+      return response.status(200).json({ visitorPreferences: text })
+    }
+    if (action === 'savePerson') {
+      if (!isOrganizer) return sendError(response, 401, 'Family access is required to edit people.')
+      const contact = request.body?.contact || {}
+      const name = clean(contact.name, 120), phone = clean(contact.phone, 40), email = clean(contact.email, 200).toLowerCase()
+      if (!name || (email && !/^\S+@\S+\.\S+$/.test(email))) return sendError(response, 400, 'Enter a name and a valid email, if provided.')
+      const originals = (Array.isArray(request.body?.originals) ? request.body.originals : []).slice(0, 100)
+      const names = (originals.length ? originals : [{ name }]).map((item: { name?: string }) => clean(item.name, 120).toLowerCase()).filter(Boolean)
+      await sql`
+        WITH contacts AS (
+          UPDATE support_contacts SET name = ${name}, phone = ${phone}, email = ${email}
+          WHERE LOWER(TRIM(name)) = ANY(${names}::text[]) RETURNING id
+        ), care AS (
+          UPDATE care_team SET name = ${name}, phone = ${phone}, email = ${email}
+          WHERE LOWER(TRIM(name)) = ANY(${names}::text[]) RETURNING id
+        ), events AS (
+          UPDATE team_events SET helper = ${name}, helper_phone = ${phone}, helper_email = ${email}
+          WHERE LOWER(TRIM(helper)) = ANY(${names}::text[]) RETURNING id
+        ), requests AS (
+          UPDATE support_requests SET requester_name = ${name}, requester_phone = ${phone}, requester_email = ${email}
+          WHERE LOWER(TRIM(requester_name)) = ANY(${names}::text[]) RETURNING id
+        ), available AS (
+          UPDATE availability SET name = ${name}, phone = ${phone}
+          WHERE LOWER(TRIM(name)) = ANY(${names}::text[]) RETURNING id
+        )
+        INSERT INTO support_contacts (id, name, phone, email)
+        SELECT ${randomUUID()}, ${name}, ${phone}, ${email} WHERE NOT EXISTS (SELECT 1 FROM contacts)
+      `
+      return response.status(200).json({ saved: true })
+    }
     if (action === 'saveVisitSettings') {
       if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change visiting hours.')
       const startTime = clean(request.body?.startTime, 20)
@@ -1176,7 +1217,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const phone = clean(request.body?.phone, 40)
       const email = clean(request.body?.email, 200).toLocaleLowerCase()
       if (!name || !phone || !/^\S+@\S+\.\S+$/.test(email)) return sendError(response, 400, 'Please enter your name, phone number, and email address.')
-      const existing = await sql`SELECT id FROM support_contacts WHERE LOWER(email) = ${email} OR phone = ${phone} ORDER BY created_at DESC LIMIT 1`
+      const existing = await sql`SELECT id FROM support_contacts WHERE LOWER(TRIM(name)) = LOWER(${name}) ORDER BY created_at DESC LIMIT 1`
       const id = existing[0]?.id || randomUUID()
       if (existing.length) {
         await sql`UPDATE support_contacts SET name = ${name}, phone = ${phone}, email = ${email} WHERE id = ${id}`
@@ -1204,8 +1245,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         if (!contactName || (!contactPhone && !contactEmail)) return
         const existing = await sql`
           SELECT id FROM support_contacts
-          WHERE (${contactEmail} <> '' AND LOWER(email) = ${contactEmail})
-             OR (${contactPhone} <> '' AND phone = ${contactPhone})
+          WHERE LOWER(TRIM(name)) = LOWER(${contactName})
           ORDER BY created_at DESC
           LIMIT 1
         `
@@ -1378,7 +1418,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const eventDate = `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
       const dayLabel = new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
       const title = type === 'food' ? 'Food drop-off' : 'Stop by'
-      const details = submittedDetails || (type === 'food' ? 'Food drop-off. Text Mary directly if you have any questions.' : defaultEventDetails)
+      const details = submittedDetails || 'Brief food drop-off only; no social visit. Please follow the confirmation email instructions.'
       const rows = await sql`
         WITH inserted_event AS (
           INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, help_needed, for_who, is_proposed, proposal_type)
@@ -1404,7 +1444,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const requestNote = clean(request.body?.note, 1000)
       if (!eventId || !name || !phone || !/^\S+@\S+\.\S+$/.test(email)) return sendError(response, 400, 'Please enter your name, phone number, and email address.')
       const availableEvents = await sql`
-        SELECT id, title, day_label AS "dayLabel", event_time AS time, end_time AS "endTime", help_needed AS "helpNeeded", helper, is_flexible AS "isFlexible"
+        SELECT id, title, day_label AS "dayLabel", event_time AS time, end_time AS "endTime", help_needed AS "helpNeeded", helper, event_date AS date, is_flexible AS "isFlexible"
         FROM team_events WHERE id = ${eventId}
       `
       if (!availableEvents.length) return sendError(response, 404, 'This schedule item could not be found.')
@@ -1415,6 +1455,12 @@ export default async function handler(request: VercelRequest, response: VercelRe
         return sendError(response, 400, 'Choose a time within the open window.')
       }
 
+      if (String(selectedEvent.helpNeeded).toLowerCase().includes('ride') && (requestStartTime !== selectedEvent.time || requestEndTime !== selectedEvent.endTime)) return sendError(response, 400, 'Appointment helpers must stay for the entire scheduled time.')
+      if (!selectedEvent.isFlexible && !String(selectedEvent.helpNeeded).toLowerCase().includes('ride')) {
+        const nurses = await sql`SELECT id, name, role, weekdays, start_time AS "startTime", end_time AS "endTime", auto_assign AS "autoAssign" FROM care_team WHERE role = 'Nurse' AND auto_assign = TRUE`
+        const covered = nurses.some((row) => nurseOnDate({ ...row, weekdays: String(row.weekdays).split(',').map(Number) } as CareTeamMember, String(selectedEvent.date).slice(0, 8)) && requestStartTime < String(row.endTime) && requestEndTime > String(row.startTime))
+        if (covered) return sendError(response, 409, 'Mary has nurse care during this time and is not receiving visitors. Please choose another open task.')
+      }
       const requestId = randomUUID()
       const approvalToken = randomUUID()
       const rows = await sql`

@@ -531,3 +531,17 @@ textarea { min-height:95px; resize:vertical; }
 .group-event-banner h2 { margin: 8px 0; }
 .group-event-banner .primary-button { flex-shrink: 0; }
 @media (max-width: 640px) { .group-event-banner { flex-direction: column; align-items: stretch; padding: 20px; } }
+.visitor-notice { padding: 20px 24px; border-left: 4px solid #b27a45; background: #fff8ec; border-radius: 12px; margin: 20px 0; }
+.visitor-notice h3 { margin-top: 0; }
+.visitor-notice p { white-space: pre-wrap; line-height: 1.6; }
+.visitor-notice a { color: #235842; font-weight: 700; }
+.visitor-preferences-editor { margin-top: 24px; }
+.visitor-preferences-editor textarea { min-height: 180px; }
+.person-select, .food-open-date { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 20px; text-align: left; padding: 18px; background: #fff; color: #244b3e; border: 1px solid #cad8cd; border-radius: 12px; cursor: pointer; font: inherit; }
+.person-select span, .food-open-date span { display: flex; flex-direction: column; gap: 6px; }
+.person-select span:last-child, .food-open-date span:last-child { flex-direction: row; align-items: center; }
+.person-select small, .food-open-date small { font-size: .85rem; line-height: 1.5; }
+.food-open-dates { display: grid; gap: 12px; }
+.person-section { border-top: 1px solid #d9e2d9; padding-top: 20px; margin-top: 24px; }
+.pending-person-request { padding: 14px; background: #f4f7ef; margin: 12px 0; border-radius: 10px; }
+@media (max-width: 640px) { .food-open-date, .person-select { align-items: flex-start; gap: 10px; } .food-open-date span:last-child, .person-select span:last-child { font-size: .8rem; } .visitor-notice { padding: 16px; } }
