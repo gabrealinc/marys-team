@@ -3,6 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { sendTeamNotification } from '../lib/email.js'
 import { queueNotification, processOutbox, notificationSummary, supersedeNotifications, supersedeEventEmails } from '../lib/outbox.js'
+import { scheduleEmailJob } from '../lib/email-queue.js'
 import { saveTemplate, previewTemplate, applyTemplate } from '../lib/templates.js'
 import { publicSchedule } from '../lib/public-schedule.js'
 import type { TeamEvent as ScheduleEvent, CareTeamMember as ScheduleCareTeam } from '../lib/schedule.js'
@@ -1257,6 +1258,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const jobs = await sql`UPDATE email_outbox SET status = 'queued', attempts = 0, next_attempt_at = NOW(), last_error = NULL
         WHERE id = ${id} AND recipient <> '' AND status IN ('failed', 'bounced', 'retry') RETURNING notification_key`
       if (!jobs.length) return sendError(response, 409, 'This message is not waiting for retry.')
+      await scheduleEmailJob(sql, id)
       await processOutbox(sql, String(jobs[0].notification_key))
       return response.status(200).json({ notifications: await notificationSummary(sql) })
     }

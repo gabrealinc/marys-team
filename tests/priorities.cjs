@@ -67,6 +67,13 @@ await outbox.queueNotification(sql,'qa-retry',details,['retry@example.com']);awa
 await sql`UPDATE email_outbox SET checked_at=NOW() WHERE notification_key<>'qa-retry'`;deliveryState={status:'failed',error:'Mailbox does not exist'};await outbox.checkOutboxDelivery(sql);jobs=await sql`SELECT * FROM email_outbox WHERE notification_key='qa-retry'`;assert.equal(jobs[0].status,'bounced');
 r=await call();assert(!JSON.stringify(r.data).includes('Mailbox does not exist'));
 await outbox.queueNotification(sql,'qa-stale',details,['stale@example.com']);await outbox.supersedeNotifications(sql,'qa-stale');emailCount=emails.length;await outbox.processOutbox(sql,'qa-stale');assert.equal(emails.length,emailCount);
+
+await outbox.runEmailJob(sql, (await sql`SELECT id FROM email_outbox WHERE notification_key='qa-retry'`)[0].id, 1);
+await outbox.queueNotification(sql,'qa-background',details,['background@example.com']);failDelivery=true;let backgroundId=(await sql`SELECT id FROM email_outbox WHERE notification_key='qa-background'`)[0].id;
+await assert.rejects(outbox.runEmailJob(sql,backgroundId,1),e=>e instanceof outbox.EmailRetry&&e.afterSeconds>=60);failDelivery=false;
+await sql`UPDATE email_outbox SET next_attempt_at=NOW()-INTERVAL '1 minute' WHERE id=${backgroundId}`;deliveryState={status:'delivered',error:''};await outbox.runEmailJob(sql,backgroundId,2);
+assert.equal((await sql`SELECT status FROM email_outbox WHERE id=${backgroundId}`)[0].status,'delivered');
+
 // A new volunteer immediately joins the directory without waiting for a GET repair.
 r=await call({action:'addSupportContact',name:'New Friend',phone:'6025550166',email:'new@example.com'});assert.equal(r.code,201);
 assert((await call(null,true)).data.supportContacts.some(p=>p.name==='New Friend'&&p.personId));

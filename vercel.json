@@ -29,7 +29,7 @@
   "crons": [
     {
       "path": "/api/notifications",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 14 * * *"
     }
   ],
   "functions": {
@@ -38,6 +38,15 @@
     },
     "api/data.ts": {
       "maxDuration": 300
+    },
+    "api/email-worker.ts": {
+      "maxDuration": 60,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "care-email-updates"
+        }
+      ]
     }
   }
 }

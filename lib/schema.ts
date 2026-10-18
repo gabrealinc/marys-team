@@ -168,7 +168,7 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
   await sql`CREATE TABLE IF NOT EXISTS email_outbox (
     id TEXT PRIMARY KEY, notification_key TEXT NOT NULL, recipient TEXT NOT NULL, details JSONB NOT NULL,
     status TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    locked_at TIMESTAMPTZ, sent_at TIMESTAMPTZ, checked_at TIMESTAMPTZ, provider TEXT, provider_message_id TEXT,
+    scheduled_at TIMESTAMPTZ, locked_at TIMESTAMPTZ, sent_at TIMESTAMPTZ, checked_at TIMESTAMPTZ, provider TEXT, provider_message_id TEXT,
     last_error TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(notification_key, recipient)
   )`
   await sql`CREATE INDEX IF NOT EXISTS email_outbox_due ON email_outbox(next_attempt_at) WHERE status IN ('queued', 'retry', 'sending')`
