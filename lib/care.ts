@@ -1,11 +1,12 @@
 export const defaultVisitorPreferences = 'Mary has full-time care from her nurse and family and is not receiving social visits or drop-ins. Please sign up only for a specific practical task the family has requested. Appointment helpers must stay with Mary throughout and be comfortable providing hands-on mobility support. The most helpful ways to support the family are contributing to the GoFundMe or bringing food when a slot is open. Food drop-offs are brief and do not include a visit. Please wait for confirmation before coming, and respect any changes or cancellations. Thank you for understanding and giving Mary and her family privacy.'
-export type Contact = { name: string; phone: string; email: string }
+export type Contact = { personId?: string; familyKey?: string; name: string; phone: string; email: string }
 export function nameKey(value: string) {
   const key = value.trim().toLowerCase().replace(/\s+/g, ' ')
   const family: Record<string, string> = { mary: 'mary greenberg', stu: 'stu greenberg', stuart: 'stu greenberg', 'stuart greenberg': 'stu greenberg', gabby: 'gabby greenberg', gabrielle: 'gabby greenberg', 'gabrielle greenberg': 'gabby greenberg', spencer: 'spencer greenberg' }
   return family[key] || key
 }
 export function samePerson(a: Contact, b: Contact) {
+  if (a.personId && b.personId) return a.personId === b.personId
   const phone = (v: string) => v.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')
   const aName = nameKey(a.name), bName = nameKey(b.name)
   if (!aName || !bName) return false
@@ -20,6 +21,7 @@ export function mergeContacts(entries: Contact[]) {
     const matches = result.filter((item) => samePerson(item, entry))
     const contact = matches[0]
     if (contact) {
+      contact.personId ||= entry.personId
       if (!contact.phone) contact.phone = entry.phone
       if (!contact.email) contact.email = entry.email
       for (const extra of matches.slice(1)) {
@@ -45,9 +47,9 @@ export function openCareWindows<T extends { date: string; time: string; endTime:
   }
   return windows
 }
-export function foodTimeSlots(dateKey: string, settings: { weekdays: number[]; startTime: string; endTime: string }, reservedDates: string[], events: { date: string; time: string; endTime: string; forWho: string; proposalType?: string; isFlexible?: boolean }[]) {
+export function foodTimeSlots(dateKey: string, settings: { weekdays: number[]; startTime: string; endTime: string }, reservedDates: string[], events: { date: string; time: string; endTime: string; forWho: string; proposalType?: string; helper?: string; requestPending?: boolean; isFlexible?: boolean }[]) {
   const weekday = new Date(`${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}T12:00:00Z`).getUTCDay()
-  if (!settings.weekdays.includes(weekday) || reservedDates.includes(dateKey)) return []
+  if (!settings.weekdays.includes(weekday) || reservedDates.includes(dateKey) || events.some((event) => event.proposalType === 'food' && event.date.startsWith(dateKey) && (event.helper || event.requestPending))) return []
   const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5))
   const clock = (value: number) => `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
   const slots: string[] = []

@@ -545,3 +545,13 @@ textarea { min-height:95px; resize:vertical; }
 .person-section { border-top: 1px solid #d9e2d9; padding-top: 20px; margin-top: 24px; }
 .pending-person-request { padding: 14px; background: #f4f7ef; margin: 12px 0; border-radius: 10px; }
 @media (max-width: 640px) { .food-open-date, .person-select { align-items: flex-start; gap: 10px; } .food-open-date span:last-child, .person-select span:last-child { font-size: .8rem; } .visitor-notice { padding: 16px; } }
+.fixed-schedule-item { display: flex; justify-content: space-between; gap: 16px; padding: 18px; border: 1px solid #cbd8cd; border-radius: 12px; background: #eff4ee; }
+.fixed-schedule-item > span:first-child { display: flex; flex-direction: column; gap: 5px; }
+.fixed-schedule-item > span:last-child { font-size: .85rem; }
+.organizer-tabs { flex-wrap: wrap; }
+.family-preferences { margin-top: 24px; }
+button, input, select { min-height: 44px; }
+.month-cell.past-day { background: #edf0ee; color: #7f8983; }
+.month-cell.past-day .month-number { color: #7f8983; }
+.month-cell.past-day .month-summary, .month-cell.past-day .calendar-dot { opacity: .55; filter: grayscale(1); }
+.month-cell.past-day:hover:not(:disabled) { background: #e4e9e5; }
