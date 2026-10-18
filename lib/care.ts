@@ -45,3 +45,15 @@ export function openCareWindows<T extends { date: string; time: string; endTime:
   }
   return windows
 }
+export function foodTimeSlots(dateKey: string, settings: { weekdays: number[]; startTime: string; endTime: string }, reservedDates: string[], events: { date: string; time: string; endTime: string; forWho: string; proposalType?: string; isFlexible?: boolean }[]) {
+  const weekday = new Date(`${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}T12:00:00Z`).getUTCDay()
+  if (!settings.weekdays.includes(weekday) || reservedDates.includes(dateKey)) return []
+  const minutes = (value: string) => Number(value.slice(0, 2)) * 60 + Number(value.slice(3, 5))
+  const clock = (value: number) => `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`
+  const slots: string[] = []
+  for (let start = minutes(settings.startTime); start + 30 <= minutes(settings.endTime); start += 30) {
+    const time = clock(start), end = clock(start + 30)
+    if (!events.some((event) => event.forWho === 'Mary' && !event.proposalType && !event.isFlexible && event.date.startsWith(dateKey) && event.time < end && event.endTime > time)) slots.push(time)
+  }
+  return slots
+}
