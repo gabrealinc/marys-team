@@ -222,7 +222,7 @@ function applyCareTeamAssignments(events: TeamEvent[], careTeam: CareTeamMember[
     if (event.helper || event.requestPending || event.isFlexible || isNoSupport(event.helpNeeded) || event.helpNeeded.toLocaleLowerCase().includes('ride')) return event
     const dateKey = event.date.slice(0, 8)
     const weekday = new Date(`${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}T12:00:00`).getDay()
-    const member = careTeam.find((person) => person.autoAssign && person.weekdays.includes(weekday) && event.time >= person.startTime && event.endTime <= person.endTime)
+    const member = careTeam.find((person) => person.role !== 'Nurse' && person.autoAssign && person.weekdays.includes(weekday) && event.time >= person.startTime && event.endTime <= person.endTime)
     return member ? { ...event, helper: member.name, helperPhone: member.phone, helperEmail: member.email } : event
   })
 }
@@ -678,7 +678,6 @@ function App() {
         <div className="header-tools"><button className="family-access-button" type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /><span>Edit &amp; Approve</span>{organizer && pendingRequests.length > 0 && <strong aria-label={`${pendingRequests.length} requests waiting`}>{pendingRequests.length}</strong>}</button><button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> <span>How to use this page</span></button></div>
       </header>
       <main id="top">
-        <VisitorNotice text={visitorPreferences} />
         {teamEvents.filter((event) => event.helpNeeded === 'Group event' && event.date.slice(0, 8) >= localDateInputValue().replaceAll('-', '')).map((event) => <section className="group-event-banner" key={event.id} aria-label="Community group event"><div><p className="eyebrow">Group event · Everyone is welcome</p><h2>{event.title}</h2><p>{event.dayLabel} · {eventTimeRangeLabel(event)}</p>{event.location && <p>{event.location}</p>}<p>Come walk with Mary’s Team. Register on the official ALS team page to join us.</p></div><a className="primary-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Sign up for the ALS walk</a></section>)}
         <section className="welcome" aria-labelledby="page-title">
           <div><p className="eyebrow">Family schedule and support</p><h1 id="page-title">The Greenbergs’ Schedule</h1><p className="intro">See what’s coming up and sign up where support is needed.</p></div>
