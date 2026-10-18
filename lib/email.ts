@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer'
 
-type NotificationDetails = {
+export type NotificationDetails = {
   subject: string
   heading: string
   intro: string
@@ -18,7 +18,7 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;')
 }
 
-function recipientList(override?: string[]) {
+export function recipientList(override?: string[]) {
   const testAddress = process.env.NOTIFICATION_TEST_EMAIL?.trim()
   if (process.env.NOTIFICATION_MODE !== 'live') return testAddress ? [testAddress] : []
   if (override?.length) return override.map((email) => email.trim()).filter(Boolean)
@@ -43,8 +43,9 @@ async function sendWithHighLevel(details: NotificationDetails, recipients: strin
   const html = notificationHtml(details)
   const message = notificationText(details)
 
-  await Promise.all(recipients.map(async (email) => {
+  const receipts = await Promise.all(recipients.map(async (email) => {
     const upsertResponse = await fetch('https://services.leadconnectorhq.com/contacts/upsert', {
+      signal: AbortSignal.timeout(12000),
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ email, locationId, source: "Mary's Team notifications" }),
@@ -55,16 +56,19 @@ async function sendWithHighLevel(details: NotificationDetails, recipients: strin
     if (!contactId) throw new Error('HighLevel did not return a contact ID')
 
     const messageResponse = await fetch('https://services.leadconnectorhq.com/conversations/messages', {
+      signal: AbortSignal.timeout(12000),
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, Version: '2021-04-15', 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ type: 'Email', contactId, emailTo: email, emailFrom: fromEmail, subject: details.subject, html, message, status: 'pending' }),
     })
     if (!messageResponse.ok) throw new Error(`HighLevel email request failed with ${messageResponse.status}`)
+    const result = await messageResponse.json() as { messageId?: string; id?: string }
+    return { provider: 'ghl', messageId: result.messageId || result.id || '' }
   }))
-  return true
+  return receipts[0]
 }
 
-export async function sendTeamNotification(details: NotificationDetails, recipientOverride?: string[]) {
+export async function deliverTeamNotification(details: NotificationDetails, recipientOverride?: string[]) {
   const highLevelToken = process.env.GHL_PRIVATE_TOKEN?.trim()
   const highLevelLocationId = process.env.GHL_LOCATION_ID?.trim()
   const recipients = recipientList(recipientOverride)
@@ -79,13 +83,30 @@ export async function sendTeamNotification(details: NotificationDetails, recipie
     port: 465,
     secure: true,
     auth: { user, pass: password },
+    connectionTimeout: 12000, socketTimeout: 15000,
   })
-  await transporter.sendMail({
+  const result = await transporter.sendMail({
     from: `Mary's Team <${user}>`,
     to: recipients,
     subject: details.subject,
     text: notificationText(details),
     html: notificationHtml(details),
   })
-  return true
+  return { provider: 'smtp', messageId: result.messageId || '' }
+}
+
+export async function sendTeamNotification(details: NotificationDetails, recipientOverride?: string[]) {
+  return Boolean(await deliverTeamNotification(details, recipientOverride))
+}
+
+export async function checkMessageDelivery(messageId: string) {
+  const token = process.env.GHL_PRIVATE_TOKEN?.trim()
+  if (!token || !messageId) return null
+  const response = await fetch(`https://services.leadconnectorhq.com/conversations/messages/${encodeURIComponent(messageId)}`, {
+    headers: { Authorization: `Bearer ${token}`, Version: '2021-04-15', Accept: 'application/json' }, signal: AbortSignal.timeout(10000),
+  })
+  if (!response.ok) throw new Error(`Delivery status check failed (${response.status})`)
+  const result = await response.json() as { status?: string; error?: string; message?: { status?: string; error?: string } }
+  const message = result.message || result
+  return { status: String(message.status || ''), error: String(message.error || '') }
 }

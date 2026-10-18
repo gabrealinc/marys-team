@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run migrate && tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "migrate": "node --import tsx scripts/migrate.ts",
+    "test": "node tests/priorities.cjs && node tests/family-ui.cjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -17,13 +19,16 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
     "@types/node": "^24.13.3",
     "@types/nodemailer": "^8.0.2",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vercel/node": "^17.0.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.1.3",
     "oxlint": "^1.81.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   }

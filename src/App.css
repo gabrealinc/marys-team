@@ -555,3 +555,18 @@ button, input, select { min-height: 44px; }
 .month-cell.past-day .month-number { color: #7f8983; }
 .month-cell.past-day .month-summary, .month-cell.past-day .calendar-dot { opacity: .55; filter: grayscale(1); }
 .month-cell.past-day:hover:not(:disabled) { background: #e4e9e5; }
+
+.family-overview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:18px 0; }
+.family-overview button { display:flex; flex-direction:column; gap:5px; padding:16px 8px; border:1px solid #b8cebf; background:#f5f9f4; border-radius:12px; color:#204a34; font-size:15px; }
+.family-overview button[aria-pressed="true"] { outline:2px solid #285b44; background:#e7f1e5; }
+.family-overview strong { font-size:26px; }
+.email-status { margin-top:24px; padding:18px; border:1px solid #cbd9ce; border-radius:12px; }
+.email-status.needs-attention { border-color:#ac6b26; background:#fff9ee; }
+.email-status article { display:flex; align-items:center; justify-content:space-between; gap:12px; border-top:1px solid #d7dfd6; padding:14px 0; overflow-wrap:anywhere; }
+.email-status small,.routine-choice small { display:block; margin-top:4px; }
+.email-status summary { cursor:pointer; padding:12px 0; }
+.weekly-routine fieldset { border:1px solid #cbd9ce; border-radius:10px; padding:12px; margin:16px 0; }
+.routine-choice { display:flex; gap:12px; align-items:center; padding:10px 0; font-weight:normal; }
+.routine-choice input { flex:0 0 22px; min-height:22px; width:22px; height:22px; }
+.weekly-routine button { margin:8px 0; }
+@media(max-width:540px) { .family-overview { gap:6px; } .family-overview button { font-size:13px; } .email-status article { align-items:flex-start; flex-direction:column; } }
