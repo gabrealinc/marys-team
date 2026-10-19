@@ -8,7 +8,7 @@ import { EmailStatus } from './FamilyPlanning'
 import type { EmailNotice, WeekTemplate } from './FamilyPlanning'
 import { buildHelpNeededEvents } from '../lib/schedule'
 import type { TeamEvent, FamilyInTown, FamilyInTownDates, CareTeamMember } from '../lib/schedule'
-import { defaultVisitorPreferences, signupVisitorPreferences, mergeContacts, samePerson, openCareWindows, foodTimeSlots } from '../lib/care'
+import { defaultVisitorPreferences, signupVisitorPreferences, mergeContacts, samePerson, foodTimeSlots } from '../lib/care'
 
 type ForWho = 'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'Coco' | 'Family'
 type PlanType = 'food' | 'stop_by'
@@ -99,7 +99,7 @@ function shouldShowEventLocation(event: Pick<TeamEvent, 'location' | 'helpNeeded
 }
 
 function isPrivateAppointment(event: TeamEvent) {
-  return event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && event.helpNeeded !== 'Group event'
+  return event.forWho === 'Mary' && event.category === 'appointment' && !event.proposalType && event.helpNeeded !== 'Group event'
 }
 
 function eventDisplayTitle(event: TeamEvent, revealPrivateDetails = false) {
@@ -122,6 +122,23 @@ function eventDisplayDetails(event: TeamEvent, revealPrivateDetails = false) {
     return event.details || `${event.forWho} is working.`
   }
   return event.details
+}
+
+function eventPublicStatus(event: TeamEvent) {
+  const isFood = event.proposalType === 'food' || event.title.toLowerCase().includes('food')
+  if (event.helper) {
+    if (isFood) return `Bringing it: ${event.helper}`
+    if (isPrivateAppointment(event) && eventDisplayTitle(event) === 'Appointment') return `Driver: ${event.helper}`
+    return `With ${event.helper}`
+  }
+  if (event.scheduleSource === 'nurse_coverage') return 'Unavailable'
+  if (event.helpNeeded === 'Group event') return 'Group event · Everyone is welcome'
+  if (event.publicAction === 'stop_by') return 'Choose a time to stop by'
+  if (event.proposalType === 'food') return event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested'
+  if (event.proposalType === 'stop_by') return event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted'
+  if (isNoSupport(event.helpNeeded)) return event.forWho === 'Mary' ? 'Unavailable' : 'Busy'
+  if (event.requestPending) return event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted'
+  return event.helpNeeded
 }
 
 function eventTimeRangeLabel(event: TeamEvent) {
@@ -198,6 +215,39 @@ function applyCareTeamAssignments(events: TeamEvent[], careTeam: CareTeamMember[
   })
 }
 
+function applyNurseCoverage(event: TeamEvent, careTeam: CareTeamMember[]) {
+  if (event.helper || event.requestPending || event.isFlexible || isNoSupport(event.helpNeeded) || event.helpNeeded.toLowerCase().includes('ride')) return [event]
+  const dateKey = event.date.slice(0, 8)
+  const weekday = new Date(`${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}T12:00:00`).getDay()
+  let windows: TeamEvent[] = [event]
+  for (const nurse of careTeam.filter((person) => person.role === 'Nurse' && person.autoAssign && person.weekdays.includes(weekday))) {
+    windows = windows.flatMap((window) => {
+      if (window.helper || nurse.endTime <= window.time || nurse.startTime >= window.endTime) return [window]
+      const overlapStart = window.time > nurse.startTime ? window.time : nurse.startTime
+      const overlapEnd = window.endTime < nurse.endTime ? window.endTime : nurse.endTime
+      const pieces: TeamEvent[] = []
+      if (window.time < overlapStart) pieces.push({ ...window, endTime: overlapStart })
+      pieces.push({
+        ...window,
+        date: `${dateKey}T${overlapStart.replace(':', '')}00`,
+        time: overlapStart,
+        endTime: overlapEnd,
+        helper: nurse.name,
+        helperPhone: nurse.phone,
+        helperEmail: nurse.email,
+        helperPersonId: nurse.personId,
+      })
+      if (overlapEnd < window.endTime) pieces.push({
+        ...window,
+        date: `${dateKey}T${overlapEnd.replace(':', '')}00`,
+        time: overlapEnd,
+      })
+      return pieces
+    })
+  }
+  return windows
+}
+
 async function apiRequest(body?: unknown) {
   const response = await fetch('/api/data', body ? {
     method: 'POST',
@@ -258,7 +308,7 @@ function App() {
     const slots = foodTimeSlots(day.dateKey, foodSettings, foodReservedDates, teamEvents)
     return slots.length ? [{ id: `food-open-${day.dateKey}`, category: 'home' as const, forWho: 'Mary' as const, date: `${day.dateKey}T${slots[0].replace(':', '')}00`, dayLabel: day.fullDay, time: slots[0], endTime: addMinutes(slots[slots.length - 1], 30), title: 'Bring food', details: 'Choose this day to see food preferences, select an available drop-off time, and tell us what you’re bringing. Brief drop-off only; no social visit.', helpNeeded: 'Food drop-off', publicAction: 'food' as const }]: []
   })
-  const supportFeedEvents = [...calculatedHelpNeeded.flatMap((event) => openCareWindows(event, careTeam)), ...foodNeeds]
+  const supportFeedEvents = [...calculatedHelpNeeded.flatMap((event) => applyNurseCoverage(event, careTeam)), ...foodNeeds]
   const helpFeedEvents = supportFeedEvents.filter((event) => !event.helper && !event.requestPending)
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
   const visibleEvents = (view === 'help' ? helpFeedEvents : teamEvents)
@@ -780,13 +830,13 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
         <small>{day.date.toLocaleDateString('en-US', { month: 'short' })}</small>
       </div>
       <div className="calendar-items">
-        {day.events.length ? day.events.map((event) => <button type="button" key={event.id} onClick={() => onOpen(event)}>
+        {day.events.length ? day.events.map((event) => <button type="button" key={`${event.id}-${event.date}-${event.time}-${event.endTime}`} onClick={() => onOpen(event)}>
           <span className={`calendar-dot ${event.category}`} aria-hidden="true" />
           <span>
             <strong>{eventDisplayTitle(event)}</strong>
             {eventDisplayDetails(event) && eventDisplayTitle(event) !== event.title && <small>{eventDisplayDetails(event)}</small>}
             <small>{eventTimeRangeLabel(event)}</small>
-            <em>{event.helper ? (event.title.toLowerCase().includes('food') ? `Food from ${event.helper}` : `Confirmed with ${event.helper}`) : event.scheduleSource === 'nurse_coverage' ? 'Unavailable' : event.helpNeeded === 'Group event' ? 'Group event · Everyone is welcome' : event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted' : event.helper ? (event.title.toLowerCase().includes('food') ? `Food from ${event.helper}` : `Confirmed with ${event.helper}`) : isNoSupport(event.helpNeeded) ? (event.forWho === 'Mary' ? 'Unavailable' : 'Busy') : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em>
+            <em>{eventPublicStatus(event)}</em>
           </span>
         </button>) : <p>Not available.</p>}
       </div>
@@ -831,14 +881,14 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
         const openHelp = day.events.some((event) => !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending)
         const busyCount = day.events.filter((event) => !event.proposalType && !event.publicAction && isNoSupport(event.helpNeeded)).length
         const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
-        return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.isPast ? 'past-day' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', not available'}`}>
+        return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.isPast ? 'past-day' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no schedule items'}`}>
           <span className="month-number">{day.date.getDate()}</span>
-          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{busyCount > 0 && <span className="month-status appointment">{busyCount} {busyCount === 1 ? 'Appointment' : 'Appointments'}</span>}{foodCovered && <span className="month-status food">Food Covered</span>}{!day.events.length && <span className="month-status appointment">Not available</span>}</span>
+          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{busyCount > 0 && <span className="month-status appointment">{busyCount} {busyCount === 1 ? 'Appointment' : 'Appointments'}</span>}{foodCovered && <span className="month-status food">Food Covered</span>}</span>
         </button>
       })}</div>
     </div>
     {selectedDay && <ModalShell title={selectedDay.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} onClose={() => setSelectedDateKey('')}>
-      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={event.id} onClick={() => { setSelectedDateKey(''); onOpen(event) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{eventDisplayTitle(event)}</strong><small>{eventTimeRangeLabel(event)}</small><em>{event.helper ? (event.title.toLowerCase().includes('food') ? `Food from ${event.helper}` : `Confirmed with ${event.helper}`) : event.scheduleSource === 'nurse_coverage' ? 'Unavailable' : event.helpNeeded === 'Group event' ? 'Group event · Everyone is welcome' : event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.helper ? (event.title.toLowerCase().includes('food') ? `Food from ${event.helper}` : `Confirmed with ${event.helper}`) : isNoSupport(event.helpNeeded) ? (event.forWho === 'Mary' ? 'Unavailable' : 'Busy') : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
+      <div className="day-event-list">{selectedDay.events.map((event) => <button type="button" key={`${event.id}-${event.date}-${event.time}-${event.endTime}`} onClick={() => { setSelectedDateKey(''); onOpen(event) }}><span className={`calendar-dot ${event.category}`} aria-hidden="true" /><span><strong>{eventDisplayTitle(event)}</strong><small>{eventTimeRangeLabel(event)}</small><em>{eventPublicStatus(event)}</em></span><ChevronRight aria-hidden="true" /></button>)}</div>
     </ModalShell>}
   </>
 }
