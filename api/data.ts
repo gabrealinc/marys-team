@@ -1023,10 +1023,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       for (const row of tracked) {
         const day = String(row.day)
         if (!byDate.has(day)) {
-          if (['family_work', 'stu_work'].includes(String(row.scheduleSource))) {
-            await sql`INSERT INTO family_work_exceptions (person, work_date) VALUES (${person}, ${day}) ON CONFLICT DO NOTHING`
-            if (person === 'Stu') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${day}) ON CONFLICT DO NOTHING`
-          }
+          if (String(row.scheduleSource) === 'stu_work' && person === 'Stu') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${day}) ON CONFLICT DO NOTHING`
           await sql`DELETE FROM team_events WHERE id = ${String(row.id)}`
         }
       }
@@ -1036,7 +1033,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
         const title = entry.kind === 'Work' ? `${person} Work` : entry.kind === 'Appointment' ? `${person} Appointment` : `${person} Away`
         const eventDate = `${entry.date}T${entry.startTime.replace(':', '')}00`
         const existing = tracked.find((row) => String(row.day) === entry.date)
-        await sql`INSERT INTO family_work_exceptions (person, work_date) VALUES (${person}, ${entry.date}) ON CONFLICT DO NOTHING`
         if (person === 'Stu') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${entry.date}) ON CONFLICT DO NOTHING`
         if (existing) {
           await sql`UPDATE team_events SET event_date = ${eventDate}, day_label = ${dayLabel}, event_time = ${entry.startTime}, end_time = ${entry.endTime}, title = ${title}, details = ${`${person} is unavailable.`}, help_needed = 'Spend time with Mary', schedule_source = 'family_busy', is_schedule_exception = TRUE WHERE id = ${String(existing.id)}`
