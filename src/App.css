@@ -594,3 +594,9 @@ button, input, select { min-height: 44px; }
   .family-accordion-panel .primary-button,.family-accordion-panel .secondary-button { width:100%; }
   .care-team-panel .primary-button { width:100%; }
 }
+
+.family-schedule-step { width:100%; display:grid; gap:9px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--mist); }
+.family-schedule-step>strong { color:var(--pine-dark); }
+.family-schedule-step p { margin:0; color:var(--muted); font-size:.9rem; line-height:1.45; }
+.family-schedule-buttons { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+@media(max-width:600px) { .family-schedule-buttons { grid-template-columns:1fr; } }
