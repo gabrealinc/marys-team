@@ -154,6 +154,33 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `
+  await sql`
+    CREATE TABLE IF NOT EXISTS family_work_defaults (
+      person TEXT PRIMARY KEY CHECK (person IN ('Stu', 'Gabby', 'Spencer')),
+      weekdays TEXT NOT NULL DEFAULT '',
+      start_time TEXT NOT NULL DEFAULT '09:00',
+      end_time TEXT NOT NULL DEFAULT '17:00',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  await sql`
+    CREATE TABLE IF NOT EXISTS family_work_exceptions (
+      person TEXT NOT NULL CHECK (person IN ('Stu', 'Gabby', 'Spencer')),
+      work_date TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (person, work_date)
+    )
+  `
+  await sql`
+    INSERT INTO family_work_defaults (person, weekdays, start_time, end_time)
+    SELECT 'Stu', weekdays, start_time, end_time FROM stu_work_defaults
+    ON CONFLICT (person) DO NOTHING
+  `
+  await sql`
+    INSERT INTO family_work_exceptions (person, work_date)
+    SELECT 'Stu', work_date FROM stu_work_exceptions
+    ON CONFLICT (person, work_date) DO NOTHING
+  `
   await sql`CREATE TABLE IF NOT EXISTS food_reservations (food_date TEXT PRIMARY KEY, event_id TEXT NOT NULL UNIQUE)`
   await sql`DELETE FROM food_reservations r WHERE NOT EXISTS (SELECT 1 FROM team_events e WHERE e.id = r.event_id AND e.proposal_type = 'food' AND (COALESCE(e.helper, '') <> '' OR EXISTS (SELECT 1 FROM support_requests WHERE event_id = e.id AND status = 'pending')))`
   await sql`INSERT INTO food_reservations (food_date, event_id) SELECT DISTINCT ON (SUBSTRING(event_date, 1, 8)) SUBSTRING(event_date, 1, 8), id FROM team_events WHERE proposal_type = 'food' AND (COALESCE(helper, '') <> '' OR EXISTS (SELECT 1 FROM support_requests WHERE event_id = team_events.id AND status = 'pending')) ORDER BY SUBSTRING(event_date, 1, 8), (COALESCE(helper, '') <> '') DESC, created_at ASC ON CONFLICT DO NOTHING`
