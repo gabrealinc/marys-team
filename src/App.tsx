@@ -22,6 +22,7 @@ type FoodPreference = { id: string; type: FoodPreferenceType; name: string; item
 type FoodPreferences = { overview: string; avoid: string; suggestions: FoodPreference[] }
 type VisitSettings = { startTime: string; endTime: string }
 type StuWorkDefaults = { weekdays: number[]; startTime: string; endTime: string }
+type FamilyScheduleEntry = { date: string; kind: 'Work' | 'Appointment' | 'Away'; startTime: string; endTime: string }
 type SupportContact = { id: string; personId?: string; familyKey?: string; name: string; phone: string; email: string; source?: 'contact_list' | 'request' }
 
 const availabilityTimes = [
@@ -523,17 +524,17 @@ function App() {
     }
   }
 
-  async function saveFamilyBusyDates(person: keyof FamilyInTown, dates: string[], startTime: string, endTime: string) {
+  async function saveFamilyBusyDates(person: keyof FamilyInTown, entries: FamilyScheduleEntry[]) {
     const days = getThirtyDays()
     try {
-      await apiRequest({ action: 'saveFamilyBusyDates', person, dates, startTime, endTime, rangeStart: days[0].dateKey, rangeEnd: days.at(-1)?.dateKey })
+      await apiRequest({ action: 'saveFamilyBusyDates', person, entries, rangeStart: days[0].dateKey, rangeEnd: days.at(-1)?.dateKey })
       await refreshData(true)
       setBusyPerson(null)
-      setMessage(`${person}’s work or away days were updated.`)
+      setMessage(`${person}’s calendar was updated.`)
       window.setTimeout(() => setMessage(''), 5000)
       return true
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'We could not update these dates.')
+      setMessage(error instanceof Error ? error.message : 'We could not update this calendar.')
       return false
     }
   }
@@ -793,7 +794,7 @@ function App() {
       {showPlanRequest === 'food' ? <FoodSignupModal initialWindow={planRequestWindow} visitorPreferences={visitorPreferences} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} /> : showPlanRequest && <PlanRequestModal visitorPreferences={visitorPreferences} type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => samePerson({ ...editingAvailability, email: editingAvailability.email || '' }, { ...entry, email: entry.email || '' }) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
       {showAdd && <AddEventModal initialContact={addContact} initialForWho={addForWho} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => { setShowAdd(false); setAddContact(undefined) }} onSave={saveEvents} />}
-      {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} onClose={() => setBusyPerson(null)} onSave={(dates, startTime, endTime) => saveFamilyBusyDates(busyPerson, dates, startTime, endTime)} />}
+      {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} onClose={() => setBusyPerson(null)} onSave={(entries) => saveFamilyBusyDates(busyPerson, entries)} />}
       {inTownDatesPerson && <FamilyInTownDatesModal person={inTownDatesPerson} selectedDates={familyInTownDates[inTownDatesPerson]} onClose={() => setInTownDatesPerson(null)} onSave={(dates) => saveFamilyInTownDates(inTownDatesPerson, dates)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showSupportContact && <SupportContactModal visitorPreferences={visitorPreferences} onClose={() => setShowSupportContact(false)} onSave={saveSupportContact} />}
@@ -1115,7 +1116,7 @@ function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodPrefe
         <button className="family-accordion-toggle" type="button" aria-expanded={openSection === name} onClick={() => setOpenSection((current) => current === name ? null : name)}>
           <span><strong>{name}</strong><small>{name === 'Mary' ? 'Appointments and care' : name === 'Stu' ? 'Husband' : name === 'Gabby' ? 'Daughter' : 'Son'}</small></span><ChevronRight className={openSection === name ? 'open' : ''} aria-hidden="true" />
         </button>
-        {openSection === name && <div className="family-accordion-panel">{name === 'Mary' ? <button className="secondary-button" type="button" onClick={() => onAddSchedule('Mary')}><CalendarDays aria-hidden="true" /> Add Mary’s appointment</button> : <>{name === 'Stu' && <StuWeeklyHoursEditor defaults={stuWorkDefaults} onSave={onSaveStuWorkHours} />}<div className="family-schedule-step"><strong>1. Does {name} live with Mary?</strong><label className="in-town-check"><input type="checkbox" checked={familyInTown[name]} onChange={(event) => void onSaveFamilyInTown(name, event.target.checked)} /><span>Lives with Mary full time</span></label></div>{!familyInTown[name] && <div className="family-schedule-step"><strong>2. When is {name} visiting?</strong><p>Select the dates {name} is staying with Mary. Use the schedule below to block work or other unavailable hours during those visits.</p><button className="secondary-button" type="button" onClick={() => onEditInTownDates(name)}><CalendarDays aria-hidden="true" /> {familyInTownDates[name].length ? `${familyInTownDates[name].length} visiting dates selected` : 'Choose visiting dates'}</button></div>}<div className="family-schedule-step"><strong>{familyInTown[name] ? '2' : '3'}. Specific date changes</strong><p>{name === 'Stu' ? 'Add different hours for a certain date, or mark a date when Stu is not working.' : `Choose the exact dates and hours when ${name} will not be available.`}</p><button className="secondary-button" type="button" onClick={() => onEditBusyDates(name)}><CalendarDays aria-hidden="true" /> Add or change specific dates</button></div></>}</div>}
+        {openSection === name && <div className="family-accordion-panel">{name === 'Mary' ? <button className="secondary-button" type="button" onClick={() => onAddSchedule('Mary')}><CalendarDays aria-hidden="true" /> Add Mary’s appointment</button> : <><div className="family-schedule-step"><strong>1. Does {name} live with Mary?</strong><label className="in-town-check"><input type="checkbox" checked={familyInTown[name]} onChange={(event) => void onSaveFamilyInTown(name, event.target.checked)} /><span>Lives with Mary full time</span></label></div>{!familyInTown[name] && <div className="family-schedule-step"><strong>2. When is {name} visiting?</strong><p>Select the dates {name} is staying with Mary. Use the schedule below to block work or other unavailable hours during those visits.</p><button className="secondary-button" type="button" onClick={() => onEditInTownDates(name)}><CalendarDays aria-hidden="true" /> {familyInTownDates[name].length ? `${familyInTownDates[name].length} visiting dates selected` : 'Choose visiting dates'}</button></div>}<div className="family-schedule-step"><strong>{familyInTown[name] ? '2' : '3'}. {name}’s calendar</strong><p>Tap a date, choose work, an appointment, or away time, and set the exact hours.</p><button className="primary-button" type="button" onClick={() => onEditBusyDates(name)}><CalendarDays aria-hidden="true" /> Open {name}’s calendar</button></div></>}</div>}
       </section>)}
       <section className="family-accordion-item">
         <button className="family-accordion-toggle" type="button" aria-expanded={openSection === 'care'} onClick={() => setOpenSection((current) => current === 'care' ? null : 'care')}>
@@ -1410,15 +1411,35 @@ function compactEventDate(date: string, time: string) {
   return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
 }
 
-function FamilyBusyDatesModal({ person, events, onClose, onSave }: { person: keyof FamilyInTown; events: TeamEvent[]; onClose: () => void; onSave: (dates: string[], startTime: string, endTime: string) => Promise<boolean> }) {
+function FamilyBusyDatesModal({ person, events, onClose, onSave }: { person: keyof FamilyInTown; events: TeamEvent[]; onClose: () => void; onSave: (entries: FamilyScheduleEntry[]) => Promise<boolean> }) {
   const days = getThirtyDays()
   const first = days[0].dateKey
   const last = days.at(-1)?.dateKey || first
   const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
-  const tracked = events.filter((event) => event.forWho === person && event.date.slice(0, 8) >= first && event.date.slice(0, 8) <= last && (event.scheduleSource === 'family_busy' || event.scheduleSource === 'stu_work'))
-  const [selectedDates, setSelectedDates] = useState(() => [...new Set(tracked.map((event) => event.date.slice(0, 8)))])
+  const tracked = events.filter((event) => event.forWho === person && event.date.slice(0, 8) >= first && event.date.slice(0, 8) <= last && ['family_busy', 'family_work', 'stu_work'].includes(event.scheduleSource || ''))
+  const [entries, setEntries] = useState<FamilyScheduleEntry[]>(() => tracked.map((event) => ({
+    date: event.date.slice(0, 8),
+    kind: event.title.toLowerCase().includes('appointment') ? 'Appointment' : event.title.toLowerCase().includes('away') ? 'Away' : 'Work',
+    startTime: event.time,
+    endTime: event.endTime,
+  })))
+  const [activeDate, setActiveDate] = useState(entries[0]?.date || '')
   const [saving, setSaving] = useState(false)
-  return <ModalShell title={`${person}’s work or unavailable dates`} onClose={onClose}><p className="modal-intro">Tap each date {person} will be working or otherwise unavailable. Tap a selected date again to remove it.</p><form onSubmit={async (event) => { event.preventDefault(); if (saving) return; setSaving(true); if (!await onSave(selectedDates, '09:00', '17:00')) setSaving(false) }}><div className="calendar-date-picker"><div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div><div className="date-picker-grid">{Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`busy-blank-${index}`} />)}{days.map((day) => { const selected = selectedDates.includes(day.dateKey); return <button type="button" key={day.dateKey} aria-pressed={selected} aria-label={`${day.fullDay}${selected ? ', selected' : ''}`} onClick={() => setSelectedDates(selected ? selectedDates.filter((date) => date !== day.dateKey) : [...selectedDates, day.dateKey])}><span>{day.monthShort}</span><strong>{day.number}</strong></button> })}</div></div><p className="form-note"><strong>{selectedDates.length || 'No'} {selectedDates.length === 1 ? 'date' : 'dates'} selected.</strong> Saving will not change the hours or details of dates already on the schedule. Open each newly added date afterward to set its individual hours and details.</p><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save selected dates'}</button></div></form></ModalShell>
+  const active = entries.find((entry) => entry.date === activeDate)
+  function chooseDate(date: string) {
+    const existing = entries.find((entry) => entry.date === date)
+    if (!existing) setEntries((current) => [...current, { date, kind: 'Work', startTime: '09:00', endTime: '17:00' }])
+    setActiveDate(date)
+  }
+  function updateActive(changes: Partial<FamilyScheduleEntry>) {
+    setEntries((current) => current.map((entry) => entry.date === activeDate ? { ...entry, ...changes } : entry))
+  }
+  function removeActive() {
+    setEntries((current) => current.filter((entry) => entry.date !== activeDate))
+    setActiveDate('')
+  }
+  const activeLabel = activeDate ? dayLabelForDate(activeDate) : ''
+  return <ModalShell title={`${person}’s calendar`} onClose={onClose}><p className="modal-intro">Tap any date to add or edit it. Each date can have its own activity and hours.</p><form onSubmit={async (event) => { event.preventDefault(); if (saving || entries.some((entry) => entry.endTime <= entry.startTime)) return; setSaving(true); if (!await onSave(entries)) setSaving(false) }}><div className="calendar-date-picker"><div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div><div className="date-picker-grid">{Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`busy-blank-${index}`} />)}{days.map((day) => { const selected = entries.some((entry) => entry.date === day.dateKey); return <button type="button" key={day.dateKey} aria-pressed={selected} aria-label={`${day.fullDay}${selected ? ', scheduled' : ', no schedule'}`} onClick={() => chooseDate(day.dateKey)}><span>{day.monthShort}</span><strong>{day.number}</strong></button> })}</div></div>{active ? <div className="family-schedule-step"><strong>{activeLabel}</strong><label htmlFor="family-day-kind">What is happening?</label><select id="family-day-kind" value={active.kind} onChange={(event) => updateActive({ kind: event.target.value as FamilyScheduleEntry['kind'] })}><option>Work</option><option>Appointment</option><option>Away</option></select><div className="field-row"><div><label htmlFor="family-day-start">Starts</label><input id="family-day-start" type="time" value={active.startTime} onChange={(event) => updateActive({ startTime: event.target.value })} /></div><div><label htmlFor="family-day-end">Ends</label><input id="family-day-end" type="time" value={active.endTime} onChange={(event) => updateActive({ endTime: event.target.value })} /></div></div>{active.endTime <= active.startTime && <p className="field-error">The ending time must be later than the starting time.</p>}<button className="text-button" type="button" onClick={removeActive}>Remove this date</button></div> : <p className="form-note">Tap a date to add work, an appointment, or away time.</p>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || entries.some((entry) => entry.endTime <= entry.startTime)}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save calendar'}</button></div></form></ModalShell>
 }
 
 function FamilyInTownDatesModal({ person, selectedDates, onClose, onSave }: { person: keyof FamilyInTown; selectedDates: string[]; onClose: () => void; onSave: (dates: string[]) => Promise<boolean> }) {
