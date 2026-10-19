@@ -7,6 +7,20 @@ type PreviewItem = TeamEvent & { exists: boolean; conflict: boolean }
 type PlanningResponse = { template?: WeekTemplate; items?: PreviewItem[]; added?: number; notifications?: EmailNotice[] }
 type PlanningRequest = (body: object) => Promise<PlanningResponse>
 
+function emailDateTimeLabel(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Date and time unavailable'
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Phoenix',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(date)
+}
+
 export function EmailStatus({ notices, request, onRefresh }: { notices: EmailNotice[]; request: PlanningRequest; onRefresh: () => Promise<void> }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -23,7 +37,7 @@ export function EmailStatus({ notices, request, onRefresh }: { notices: EmailNot
     <p>Messages are saved and retried automatically. “Sent” means accepted by the email service; it does not guarantee receipt.</p>
     {error && <p role="alert">{error}</p>}
     <details open={problems.length > 0}><summary>{notices.length ? 'See recent emails and delivery status' : 'New confirmations and changes will appear here'}</summary>
-      {notices.map((notice) => <article key={notice.id}><div><strong>{notice.subject}</strong><small>{notice.recipient || 'Missing notification recipient'}</small><small>{notice.status === 'retry' && notice.retryScheduled === false ? 'Delayed · retry scheduling needs attention' : label[notice.status] || notice.status}</small>{notice.lastError && <small>{notice.lastError}</small>}</div>
+      {notices.map((notice) => <article key={notice.id}><div><strong>{notice.subject}</strong><small>{notice.recipient || 'Missing notification recipient'}</small><small><time dateTime={notice.createdAt}>{emailDateTimeLabel(notice.createdAt)}</time></small><small>{notice.status === 'retry' && notice.retryScheduled === false ? 'Delayed · retry scheduling needs attention' : label[notice.status] || notice.status}</small>{notice.lastError && <small>{notice.lastError}</small>}</div>
         {['failed', 'bounced', 'retry'].includes(notice.status) && notice.recipient && <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void retry(notice.id)}>{busy === notice.id ? 'Retrying…' : 'Retry email'}</button>}</article>)}
     </details>
   </section>
