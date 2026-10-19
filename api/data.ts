@@ -1094,6 +1094,25 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ member: { id, name, phone, email, role, weekdays, startTime, endTime, autoAssign } })
     }
 
+    if (action === 'deleteSupportContact') {
+      if (!isOrganizer) return sendError(response, 401, 'Family access is required to remove a saved contact.')
+      const personId = clean(request.body?.personId, 100)
+      if (!personId) return sendError(response, 400, 'Choose a saved contact to remove.')
+      const people = await sql`SELECT id, alias_keys AS aliases FROM directory_people WHERE id = ${personId}`
+      if (!people.length) return sendError(response, 404, 'That saved contact was not found.')
+      const protectedFamily = ['mary greenberg', 'stu greenberg', 'gabby greenberg', 'spencer greenberg']
+      if ((people[0].aliases || []).some((alias: string) => protectedFamily.includes(String(alias)))) return sendError(response, 400, 'Family contacts cannot be removed.')
+      await sql`DELETE FROM support_contacts WHERE person_id = ${personId}`
+      await sql`DELETE FROM directory_people
+        WHERE id = ${personId}
+          AND NOT EXISTS (SELECT 1 FROM support_contacts WHERE person_id = ${personId})
+          AND NOT EXISTS (SELECT 1 FROM care_team WHERE person_id = ${personId})
+          AND NOT EXISTS (SELECT 1 FROM team_events WHERE helper_person_id = ${personId})
+          AND NOT EXISTS (SELECT 1 FROM support_requests WHERE person_id = ${personId})
+          AND NOT EXISTS (SELECT 1 FROM availability WHERE person_id = ${personId})`
+      return response.status(200).json({ removed: true, personId })
+    }
+
     if (action === 'addSupportContact') {
       const name = clean(request.body?.name, 120)
       const phone = clean(request.body?.phone, 40)
