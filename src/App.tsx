@@ -1080,30 +1080,9 @@ function DeclineRequestModal({ name, onClose, onDecline }: { name: string; onClo
   return <ModalShell title="Decline this request" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (reason.trim()) onDecline(reason.trim()) }}><p className="modal-intro">Add a short, kind reason for {name}. It will be included in their email when an email address is available.</p><label htmlFor="decline-reason">Reason</label><textarea id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: We no longer need coverage at this time." autoFocus required /><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="danger-button" type="submit" disabled={!reason.trim()}>Decline request</button></div></form></ModalShell>
 }
 
-function StuWeeklyHoursEditor({ defaults, onSave }: { defaults: StuWorkDefaults; onSave: (defaults: StuWorkDefaults) => Promise<boolean> }) {
-  const [form, setForm] = useState(defaults)
-  const [saving, setSaving] = useState(false)
-  useEffect(() => setForm(defaults), [defaults])
-  const valid = form.weekdays.length > 0 && form.endTime > form.startTime
-  return <form className="family-schedule-step" onSubmit={async (event) => {
-    event.preventDefault()
-    if (!valid || saving) return
-    setSaving(true)
-    await onSave(form)
-    setSaving(false)
-  }}>
-    <strong>Normal weekly work hours</strong>
-    <p>These repeat automatically. Changes made to an individual date stay in place.</p>
-    <fieldset className="weekday-picker">
-      <legend>Days Stu normally works</legend>
-      {weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={form.weekdays.includes(day.value)} onChange={() => setForm((current) => ({ ...current, weekdays: current.weekdays.includes(day.value) ? current.weekdays.filter((value) => value !== day.value) : [...current.weekdays, day.value].sort() }))} /><span>{day.short}</span></label>)}
-    </fieldset>
-    <div className="field-row"><div><label htmlFor="stu-weekly-start">Usually starts</label><input id="stu-weekly-start" type="time" value={form.startTime} onChange={(event) => setForm({ ...form, startTime: event.target.value })} /></div><div><label htmlFor="stu-weekly-end">Usually ends</label><input id="stu-weekly-end" type="time" value={form.endTime} onChange={(event) => setForm({ ...form, endTime: event.target.value })} /></div></div>
-    <button className="primary-button" type="submit" disabled={!valid || saving}>{saving ? 'Saving…' : 'Save weekly hours'}</button>
-  </form>
-}
-
 function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodPreferences, stuWorkDefaults, onSaveStuWorkHours, familyInTown, familyInTownDates, onSaveFood, onSaveFoodPreferences, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onAddSchedule }: { careTeam: CareTeamMember[]; onEditCareMember: (member: CareTeamMember) => void; foodSettings: FoodSettings; foodPreferences: FoodPreferences; stuWorkDefaults: StuWorkDefaults; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onAddSchedule: (person: ForWho) => void }) {
+  void stuWorkDefaults
+  void onSaveStuWorkHours
   const [openSection, setOpenSection] = useState<'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'care' | null>('Mary')
   const [foodDays, setFoodDays] = useState(foodSettings.weekdays)
   const [foodStart, setFoodStart] = useState(foodSettings.startTime)
