@@ -1335,7 +1335,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       `
       if (!availableEvents.length) return sendError(response, 404, 'This schedule item could not be found.')
       const selectedEvent = availableEvents[0]
-      if (isNoSupport(String(selectedEvent.helpNeeded))) return sendError(response, 400, 'This time is marked busy and is not accepting support requests.')
+      if (isNoSupport(String(selectedEvent.helpNeeded))) return sendError(response, 400, 'This time is not accepting support requests.')
       if (selectedEvent.helper) return sendError(response, 409, 'Someone else has already filled this time.')
       if (!selectedEvent.isFlexible && (!/^\d{2}:\d{2}$/.test(requestStartTime) || !/^\d{2}:\d{2}$/.test(requestEndTime) || requestStartTime < String(selectedEvent.time) || requestEndTime > String(selectedEvent.endTime) || requestEndTime <= requestStartTime)) {
         return sendError(response, 400, 'Choose a time within the open window.')

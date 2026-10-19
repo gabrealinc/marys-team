@@ -41,7 +41,7 @@ statements=[];r=await call(null,true);const privateReads=statements.length;asser
 const secretEvent={id:'private-event',category:'appointment',forWho:'Mary',date:'20261026T100000',dayLabel:'Monday, October 26',time:'10:00',endTime:'11:00',title:'SECRET MEDICAL TITLE',details:'SECRET PRIVATE NOTES',location:'SECRET LOCATION',helpNeeded:'No help needed'};
 await call({action:'addEventBatch',events:[secretEvent]},true);
 await call({action:'saveFamilyBusyDates',person:'Gabby',dates:['20261026'],rangeStart:'20261026',rangeEnd:'20261026',startTime:'09:00',endTime:'12:00'},true);
-r=await call();const publicJson=JSON.stringify(r.data);assert(!publicJson.includes('SECRET'));assert(!publicJson.includes('Gabby Work'));assert(!('familyInTownDates' in r.data));assert(!('careTeam' in r.data));assert(!('notifications' in r.data));assert(r.data.events.some(e=>e.title==='Mary is unavailable'));
+r=await call();const publicJson=JSON.stringify(r.data);assert(!publicJson.includes('SECRET'));assert(!publicJson.includes('Gabby Work'));assert(!('familyInTownDates' in r.data));assert(!('careTeam' in r.data));assert(!('notifications' in r.data));assert(r.data.events.some(e=>e.title==='Mary is too sick to see anyone'));
 r=await call(null,false,{calendar:'private-event'});assert.equal(r.code,404);r=await call(null,true,{calendar:'private-event'});assert.equal(r.code,200);assert(r.data.includes('SECRET MEDICAL TITLE'));
 // Pending names and notes never leak; cancelled food becomes available again.
 r=await call({...plan,date:'2026-11-01'},false);assert.equal(r.code,202);let pendingFood=(await call({action:'getPendingRequests'},true)).data.requests.find(e=>e.proposalType==='food');assert(pendingFood);
