@@ -7,7 +7,7 @@ import { scheduleEmailJob } from '../lib/email-queue.js'
 import { saveTemplate, previewTemplate, applyTemplate } from '../lib/templates.js'
 import { publicSchedule } from '../lib/public-schedule.js'
 import type { TeamEvent as ScheduleEvent, CareTeamMember as ScheduleCareTeam } from '../lib/schedule.js'
-import { defaultVisitorPreferences, nurseOnDate, nameKey } from '../lib/care.js'
+import { defaultVisitorPreferences, signupVisitorPreferences, nurseOnDate, nameKey } from '../lib/care.js'
 
 type Category = 'appointment' | 'company' | 'home' | 'family' | 'dad'
 
@@ -692,7 +692,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       }), ...nurseEvents] as ScheduleEvent[]
       return response.status(200).json({
         events: isOrganizer ? allEvents : publicSchedule(allEvents, careTeam as ScheduleCareTeam[], familyInTown, familyInTownDates),
-        visitorPreferences: String(foodRowsSettings[0]?.visitorPreferences ?? defaultVisitorPreferences),
+        visitorPreferences: signupVisitorPreferences(String(foodRowsSettings[0]?.visitorPreferences ?? defaultVisitorPreferences)),
         ...(isOrganizer ? { homeAddress: familyHomeAddress, stuWorkDefaults, visitSettings, familyInTown, familyInTownDates, careTeam, supportContacts, templates, notifications } : {}),
         availability: publicAvailability, organizer: isOrganizer, foodSettings, foodPreferences, foodReservedDates,
       })

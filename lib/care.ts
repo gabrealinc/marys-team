@@ -1,4 +1,4 @@
-export const defaultVisitorPreferences = 'Mary has full-time care from her nurse and family and is not receiving social visits or drop-ins. Please sign up only for a specific practical task the family has requested. Appointment helpers must stay with Mary throughout and be comfortable providing hands-on mobility support. The most helpful ways to support the family are contributing to the GoFundMe or bringing food when a slot is open. Food drop-offs are brief and do not include a visit. Please wait for confirmation before coming, and respect any changes or cancellations. Thank you for understanding and giving Mary and her family privacy.'
+export const defaultVisitorPreferences = 'Mary has full-time care from her nurse and family and is not receiving social visits or drop-ins. Please sign up only for a specific practical task the family has requested. Appointment helpers must stay with Mary throughout and be comfortable providing hands-on mobility support. Bringing food when a slot is open is a helpful way to support the family. Food drop-offs are brief and do not include a visit. Please wait for confirmation before coming, and respect any changes or cancellations. Thank you for understanding and giving Mary and her family privacy.'
 export type Contact = { personId?: string; familyKey?: string; name: string; phone: string; email: string }
 export function nameKey(value: string) {
   const key = value.trim().toLowerCase().replace(/\s+/g, ' ')
@@ -58,4 +58,14 @@ export function foodTimeSlots(dateKey: string, settings: { weekdays: number[]; s
     if (!events.some((event) => event.forWho === 'Mary' && !event.proposalType && !event.isFlexible && event.date.startsWith(dateKey) && event.time < end && event.endTime > time)) slots.push(time)
   }
   return slots
+}
+
+// Fundraising invitations belong in the successful availability thank-you only.
+export function signupVisitorPreferences(text: string) {
+  return text
+    .replace(/contributing to the GoFundMe or bringing food/gi, 'bringing food')
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/go\s*fund\s*me|gofundme|contribut(?:e|ing)/i.test(sentence))
+    .join(' ')
+    .trim()
 }

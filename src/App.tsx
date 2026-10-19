@@ -8,7 +8,7 @@ import { EmailStatus, WeeklyRoutine } from './FamilyPlanning'
 import type { EmailNotice, WeekTemplate } from './FamilyPlanning'
 import { buildHelpNeededEvents } from '../lib/schedule'
 import type { TeamEvent, FamilyInTown, FamilyInTownDates, CareTeamMember } from '../lib/schedule'
-import { defaultVisitorPreferences, mergeContacts, samePerson, openCareWindows, foodTimeSlots } from '../lib/care'
+import { defaultVisitorPreferences, signupVisitorPreferences, mergeContacts, samePerson, openCareWindows, foodTimeSlots } from '../lib/care'
 
 type ForWho = 'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'Coco' | 'Family'
 type PlanType = 'food' | 'stop_by'
@@ -229,7 +229,7 @@ function App() {
   const [careTeam, setCareTeam] = useState<CareTeamMember[]>([])
   const [supportContacts, setSupportContacts] = useState<SupportContact[]>([])
   const [showSupportContact, setShowSupportContact] = useState(false)
-  const [showGoFundMe, setShowGoFundMe] = useState(false)
+  const [showAvailabilityThanks, setShowAvailabilityThanks] = useState(false)
   const [foodConfirmation, setFoodConfirmation] = useState<{ name: string; email: string; date: string; time: string } | null>(null)
   const [addContact, setAddContact] = useState<DriverContact | undefined>(undefined)
   const [visitorPreferences, setVisitorPreferences] = useState(defaultVisitorPreferences)
@@ -492,12 +492,13 @@ function App() {
       const addedEntries = Array.isArray(result.entries) ? result.entries : saved.map((entry) => ({ ...entry, editable: true }))
       setAvailability((items) => [...addedEntries, ...items])
       setShowAvailability(false)
+      if (!organizer) setShowAvailabilityThanks(true)
       const matchingNeeds = teamEvents.filter((event) => !event.helper && !event.requestPending && !isNoSupport(event.helpNeeded) && entries.some((entry) => entry.day === event.date.slice(0, 8) && (event.isFlexible || availabilityMatchesTime(entry.time, event.time, event.endTime))))
       if (matchingNeeds.length) {
         setView('help')
         window.setTimeout(() => document.getElementById('schedule-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
       }
-      setMessage(matchingNeeds.length ? `Thank you, ${entries[0].name}. We found ${matchingNeeds.length} open ${matchingNeeds.length === 1 ? 'time' : 'times'} that match your availability. Choose one below if it works for you.` : `Thank you, ${entries[0].name}. Your availability was added. The family may call if something comes up, but you are not signed up for anything.`)
+      setMessage(matchingNeeds.length ? `Thank you, ${entries[0].name}. We found ${matchingNeeds.length} open ${matchingNeeds.length === 1 ? 'time' : 'times'} that match your availability. Choose one below if it works for you.` : `Thank you, ${entries[0].name}. Your availability was added. The family will email if they schedule specific help; you are not signed up for anything.`)
       window.setTimeout(() => setMessage(''), 5000)
       return true
     } catch (error) {
@@ -590,7 +591,7 @@ function App() {
       const result = await apiRequest({ action: 'addSupportContact', ...contact })
       setSupportContacts((items) => [result.contact, ...items.filter((item) => item.id !== result.contact.id)])
       setShowSupportContact(false)
-      setShowGoFundMe(true)
+      setMessage('Thank you. Your contact information was added.')
       return true
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'We could not add your contact information.')
@@ -714,7 +715,7 @@ function App() {
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showSupportContact && <SupportContactModal visitorPreferences={visitorPreferences} onClose={() => setShowSupportContact(false)} onSave={saveSupportContact} />}
       {foodConfirmation && <ModalShell title="Your food drop-off request is submitted" onClose={() => setFoodConfirmation(null)}><p>Thank you, {foodConfirmation.name}. You requested {dayLabelForDate(foodConfirmation.date)} at {eventTimeLabel(foodConfirmation.time)}.</p><p><strong>Please wait for confirmation before coming.</strong> We’ll email {foodConfirmation.email} after the family reviews your request, with the address and drop-off instructions. There is no need to text for confirmation or an address.</p><p>Food drop-offs do not include a visit. Please respect any changes or cancellations.</p><button className="primary-button" type="button" onClick={() => setFoodConfirmation(null)}>Done</button></ModalShell>}
-      {showGoFundMe && <GoFundMeModal onClose={() => setShowGoFundMe(false)} />}
+      {showAvailabilityThanks && <AvailabilityThanksModal onClose={() => setShowAvailabilityThanks(false)} />}
       {approvalRequest && <ApprovalModal request={approvalRequest} onClose={() => setApprovalRequest(null)} onDecide={decideApprovalRequest} />}
       {showOrganizerLogin && <OrganizerLoginModal onClose={() => setShowOrganizerLogin(false)} onLogin={organizerLogin} />}
     </div>
@@ -882,11 +883,13 @@ function SupportContactModal({ visitorPreferences, onClose, onSave }: { visitorP
   </ModalShell>
 }
 
-function GoFundMeModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="Thank you for being part of Mary’s Team" onClose={onClose}>
-    <p className="modal-intro">Your contact information was added. If you would like another way to support Mary and the family, you can visit Mary’s GoFundMe.</p>
-    <a className="primary-button full-button" href="https://www.gofundme.com/f/support-mary-greenberg?utm_source=ig&amp;utm_medium=social&amp;utm_content=link_in_bio&amp;utm_id=97760_v0_s00_e0_tv3" target="_blank" rel="noreferrer">Visit Mary’s GoFundMe</a><p>Walk with Mary’s Team. Everyone is welcome to join.</p><a className="secondary-button full-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Sign up for the ALS walk</a>
-    <button className="text-button full-button" type="button" onClick={onClose}>Not now</button>
+function AvailabilityThanksModal({ onClose }: { onClose: () => void }) {
+  return <ModalShell title="Thank you for sharing your availability" onClose={onClose}>
+    <p className="modal-intro">Your availability has been saved. This is an offer, not a confirmed commitment. The family will email you if they schedule specific help.</p>
+    <p>Please join us at the ALS walk.</p>
+    <a className="primary-button full-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Join us at the ALS walk</a>
+    <p className="form-note">Also, feel free to share <a href="https://www.gofundme.com/f/support-mary-greenberg" target="_blank" rel="noreferrer">this link</a>.</p>
+    <button className="text-button full-button" type="button" onClick={onClose}>Done</button>
   </ModalShell>
 }
 
@@ -915,7 +918,7 @@ function AssignCoverageModal({ event, contacts, onClose, onAssign }: { event: Te
   return <ModalShell title="Assign someone" onClose={onClose}><p className="modal-intro">Choose a saved person or add someone new for {event.dayLabel}, {eventTimeRangeLabel(event)}.</p><form onSubmit={(submitEvent) => { submitEvent.preventDefault(); if (contact?.name.trim()) onAssign({ ...contact, name: contact.name.trim(), phone: contact.phone.trim(), email: contact.email.trim() }) }}><label htmlFor="coverage-helper">Who will be with Mary?</label><select id="coverage-helper" value={selected} onChange={(changeEvent) => setSelected(changeEvent.target.value)} required autoFocus><option value="">Choose a person</option>{contacts.map((item) => <option key={`${item.name}-${item.phone}`} value={item.name}>{item.name}</option>)}<option value="new">Someone new</option></select>{selected === 'new' && <><label htmlFor="new-helper-name">Name</label><input id="new-helper-name" value={newContact.name} onChange={(changeEvent) => setNewContact({ ...newContact, name: changeEvent.target.value })} required autoFocus /><div className="field-row"><div><label htmlFor="new-helper-phone">Phone <span>(optional)</span></label><input id="new-helper-phone" type="tel" value={newContact.phone} onChange={(changeEvent) => setNewContact({ ...newContact, phone: changeEvent.target.value })} autoComplete="tel" /></div><div><label htmlFor="new-helper-email">Email <span>(optional)</span></label><input id="new-helper-email" type="email" value={newContact.email} onChange={(changeEvent) => setNewContact({ ...newContact, email: changeEvent.target.value })} autoComplete="email" /></div></div></>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!contact?.name.trim()}><Check aria-hidden="true" /> Add to this time</button></div></form></ModalShell>
 }
 function VisitorNotice({ text }: { text: string }) {
-  return <aside className="visitor-notice" aria-label="Visitor preferences"><h3>Visitor preferences</h3><p>{text}</p><a href="https://www.gofundme.com/f/support-mary-greenberg" target="_blank" rel="noreferrer">Support Mary’s GoFundMe</a></aside>
+  return <aside className="visitor-notice" aria-label="Visitor preferences"><h3>Visitor preferences</h3><p>{signupVisitorPreferences(text)}</p></aside>
 }
 
 function PrivateAddressEditor({ address, onSave }: { address: string; onSave: (address: string) => Promise<boolean> }) {
@@ -1086,7 +1089,7 @@ function FoodSignupModal({ initialWindow, visitorPreferences, events, foodSettin
   }).filter((day) => day.slots.length)
   const selected = days.find((day) => day.iso === selectedDate)
   const valid = Boolean(selected?.slots.includes(time))
-  if (!selectedDate) return <ModalShell title="Choose an open food drop-off date" onClose={onClose}><p className="modal-intro">Only available dates are shown. Choose a day, then see food preferences and tell us what you’ll bring. One food drop-off per day.</p><div className="food-open-dates">{days.map((day) => <button className="food-open-date" type="button" key={day.dateKey} onClick={() => { setSelectedDate(day.iso); setTime(day.slots[0]) }}><span><strong>{day.fullDay}</strong><small>{day.slots.map(eventTimeLabel).join(' · ')}</small></span><span>Choose day <ChevronRight aria-hidden="true" /></span></button>)}</div>{!days.length && <div className="organizer-empty"><p><strong>There are no open food drop-off dates in the next 30 days.</strong><br />Please check back here. No need to contact the family to arrange another time.</p><a className="primary-button" href="https://www.gofundme.com/f/support-mary-greenberg" target="_blank" rel="noreferrer">Support Mary’s GoFundMe</a></div>}<p className="form-note">Food drop-offs are brief and do not include a social visit. Confirmation, changes, and cancellations are communicated by email. The family will email confirmation and instructions after reviewing your request.</p></ModalShell>
+  if (!selectedDate) return <ModalShell title="Choose an open food drop-off date" onClose={onClose}><p className="modal-intro">Only available dates are shown. Choose a day, then see food preferences and tell us what you’ll bring. One food drop-off per day.</p><div className="food-open-dates">{days.map((day) => <button className="food-open-date" type="button" key={day.dateKey} onClick={() => { setSelectedDate(day.iso); setTime(day.slots[0]) }}><span><strong>{day.fullDay}</strong><small>{day.slots.map(eventTimeLabel).join(' · ')}</small></span><span>Choose day <ChevronRight aria-hidden="true" /></span></button>)}</div>{!days.length && <div className="organizer-empty"><p><strong>There are no open food drop-off dates in the next 30 days.</strong><br />Please check back here. No need to contact the family to arrange another time.</p></div>}<p className="form-note">Food drop-offs are brief and do not include a social visit. Confirmation, changes, and cancellations are communicated by email. The family will email confirmation and instructions after reviewing your request.</p></ModalShell>
   return <ModalShell title="Plan your food drop-off" onClose={onClose}><div className="modal-summary"><strong>{selected?.fullDay || selectedDate}</strong><button className="text-button" type="button" onClick={() => setSelectedDate('')}>Change date</button></div><FoodPreferencesCard preferences={foodPreferences} /><VisitorNotice text={visitorPreferences} /><form onSubmit={async (event) => {
     event.preventDefault(); if (saving || !valid || !acknowledged) return
     setSaving(true); setError('')

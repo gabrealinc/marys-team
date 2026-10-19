@@ -60,6 +60,34 @@ const event = { id: 'today', title: 'Today appointment', forWho: 'Mary', categor
   await click('Preview week'); assert(text().includes('Overlaps another item')); assert.equal(document.querySelectorAll('input[type="checkbox"]:disabled').length, 1);
   await click('Add 1 items'); assert(calls.some(call => call.action === 'applyScheduleTemplate' && call.selectedIds.length === 1 && call.selectedIds[0] === 'copy1'));
   assert(text().includes('1 items added'));
+  // Fundraising is absent before submission, including legacy preference text.
+  let failOffer = true;
+  const legacyPreferences = 'No drop-ins. Please contribute to the GoFundMe. Bring food when slots are open.';
+  window.localStorage.setItem('marys-team-helper-contact', JSON.stringify({ name: 'Test Helper', phone: '6025550100', email: 'helper@example.com' }));
+  global.fetch = async (_url, options) => {
+    const body = options?.body ? JSON.parse(options.body) : null;
+    if (body?.action === 'addAvailabilityBatch') return { ok: !failOffer, json: async () => failOffer ? { error: 'Please try again.' } : { entries: body.entries } };
+    return { ok: true, json: async () => ({ events: [], availability: [], organizer: false, visitorPreferences: legacyPreferences }) };
+  };
+  await React.act(async () => root.render(React.createElement(load('src/App.tsx').default)));
+  assert(!/gofundme|contribute/i.test(text()));
+  await click('Add your availability');
+  assert(!/gofundme|contribute/i.test(text()));
+  assert.equal(document.querySelectorAll('a[href*="gofundme"]').length, 0);
+  await React.act(async () => document.querySelector('.date-picker-grid button').click());
+  await React.act(async () => { const select = document.getElementById('available-note'); select.value = 'Practical care and household support'; select.dispatchEvent(new window.Event('change', { bubbles: true })); });
+  await React.act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  assert(!text().includes('Thank you for sharing your availability'));
+  assert.equal(document.querySelectorAll('a[href*="gofundme"]').length, 0);
+  failOffer = false;
+  await React.act(async () => document.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  assert(text().includes('Thank you for sharing your availability'));
+  assert(text().includes('Please join us at the ALS walk.'));
+  assert(text().includes('Also, feel free to share this link.'));
+  assert(!/gofundme/i.test(text()));
+  assert(!/contribute/i.test(text()));
+  assert.equal(document.querySelectorAll('a[href*="gofundme"]').length, 1);
+  assert.equal(document.querySelectorAll('a[href*="secure.alsaz.org"]').length, 1);
   await React.act(async () => root.unmount());
   console.log('PASS: interactive family today/upcoming/open views, request and routine navigation, failed-email retry, routine preview excludes conflicts and submits only selected safe items.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

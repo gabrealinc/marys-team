@@ -35,6 +35,10 @@ const offer={id:'offer-new',name:'Available Only',phone:'6025550140',email:'offe
 const confirmedFood=(await call(null,true)).data.events.find(e=>e.proposalType==='food'&&e.helper);
 assert(confirmedFood);r=await call({action:'updateEvent',event:{...confirmedFood,details:'Updated brief drop-off instructions'}},true);assert.equal(r.code,200);assert.equal(r.data.event.helper,confirmedFood.helper);assert((await call()).data.foodReservedDates.includes('20261025'));
 
+await sql`UPDATE food_settings SET visitor_preferences='No visits. Please contribute to the GoFundMe. Bring food only when slots are open.' WHERE singleton=TRUE`;
+assert(!/gofundme|contribute/i.test((await call()).data.visitorPreferences));
+assert(!/gofundme|contribute/i.test((await call(null,true)).data.visitorPreferences));
+
 // Read paths must be read-only, bounded and small, with no hidden private data.
 statements=[];r=await call();const publicReads=statements.length;assert(publicReads<=8);assert(statements.every(q=>q.trim().startsWith('SELECT')));
 statements=[];r=await call(null,true);const privateReads=statements.length;assert(privateReads<=12);assert(statements.every(q=>q.trim().startsWith('SELECT')));
