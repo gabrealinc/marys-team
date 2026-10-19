@@ -570,3 +570,27 @@ button, input, select { min-height: 44px; }
 .routine-choice input { flex:0 0 22px; min-height:22px; width:22px; height:22px; }
 .weekly-routine button { margin:8px 0; }
 @media(max-width:540px) { .family-overview { gap:6px; } .family-overview button { font-size:13px; } .email-status article { align-items:flex-start; flex-direction:column; } }
+
+
+.family-accordion { display:grid; gap:10px; margin:18px 0 24px; }
+.family-accordion-item { overflow:hidden; border:1px solid var(--line); border-radius:12px; background:#fff; }
+.family-accordion-toggle { width:100%; min-height:68px; padding:14px 16px; border:0; background:#f5f9f4; color:var(--pine-dark); font:inherit; display:flex; align-items:center; justify-content:space-between; gap:16px; text-align:left; cursor:pointer; }
+.family-accordion-toggle:hover,.family-accordion-toggle:focus-visible { background:var(--mint); outline:2px solid var(--pine); outline-offset:-2px; }
+.family-accordion-toggle span,.family-accordion-toggle strong,.family-accordion-toggle small { display:block; }
+.family-accordion-toggle strong { font-size:1.05rem; }
+.family-accordion-toggle small { margin-top:3px; color:var(--muted); font-size:.82rem; font-weight:650; }
+.family-accordion-toggle svg { width:22px; flex:0 0 22px; transition:transform .18s ease; }
+.family-accordion-toggle svg.open { transform:rotate(90deg); }
+.family-accordion-panel { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:16px; border-top:1px solid var(--line); background:#fff; }
+.family-accordion-panel .in-town-check { width:100%; display:flex; align-items:center; gap:10px; margin:0; }
+.family-accordion-panel .in-town-check input { width:24px; height:24px; margin:0; accent-color:var(--pine); }
+.family-accordion-panel .secondary-button { flex:1 1 220px; }
+.care-team-panel { display:grid; }
+.care-team-panel .primary-button { width:max-content; }
+.care-team-panel .person-select { width:100%; }
+@media(max-width:600px) {
+  .family-accordion-toggle { min-height:62px; padding:12px 14px; }
+  .family-accordion-panel { align-items:stretch; padding:12px; }
+  .family-accordion-panel .primary-button,.family-accordion-panel .secondary-button { width:100%; }
+  .care-team-panel .primary-button { width:100%; }
+}
