@@ -98,11 +98,26 @@ function shouldShowEventLocation(event: Pick<TeamEvent, 'location' | 'helpNeeded
   return Boolean(event.location) && event.helpNeeded !== 'Spend time with Mary'
 }
 
-function eventDisplayTitle(event: TeamEvent) {
-  return event.scheduleSource === 'nurse_coverage' ? 'Nurse with Mary' : event.helpNeeded === 'Spend time with Mary' ? 'Practical care for Mary' : event.title
+function isPrivateAppointment(event: TeamEvent) {
+  return event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && event.helpNeeded !== 'Group event'
 }
 
-function eventDisplayDetails(event: TeamEvent) {
+function eventDisplayTitle(event: TeamEvent, revealPrivateDetails = false) {
+  if (revealPrivateDetails) return event.title
+  if (event.helpNeeded === 'Group event') return event.title
+  if (event.scheduleSource === 'nurse_coverage') return 'At Home Appointment'
+  if (event.proposalType === 'food' || event.title.toLowerCase().includes('food')) return 'Food drop-off'
+  if (event.proposalType === 'stop_by') return 'Appointment'
+  if (event.helpNeeded === 'Spend time with Mary') return 'Practical care for Mary'
+  if (isPrivateAppointment(event)) {
+    const atHome = event.location?.trim().toLowerCase() === 'home' || event.title.toLowerCase().includes('at home')
+    return atHome ? 'At Home Appointment' : 'Appointment'
+  }
+  return event.title
+}
+
+function eventDisplayDetails(event: TeamEvent, revealPrivateDetails = false) {
+  if (isPrivateAppointment(event) && !revealPrivateDetails) return ''
   if (event.helpNeeded === 'Spend time with Mary' && needsTimeWithMary(event.forWho)) {
     return event.details || `${event.forWho} is working.`
   }
@@ -769,7 +784,7 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
           <span className={`calendar-dot ${event.category}`} aria-hidden="true" />
           <span>
             <strong>{eventDisplayTitle(event)}</strong>
-            {eventDisplayTitle(event) !== event.title && <small>{eventDisplayDetails(event)}</small>}
+            {eventDisplayDetails(event) && eventDisplayTitle(event) !== event.title && <small>{eventDisplayDetails(event)}</small>}
             <small>{eventTimeRangeLabel(event)}</small>
             <em>{event.scheduleSource === 'nurse_coverage' ? 'Nurse with Mary · No visitors' : event.helpNeeded === 'Group event' ? 'Group event · Everyone is welcome' : event.publicAction === 'stop_by' ? 'Choose a time to stop by' : event.proposalType ? event.proposalType === 'food' ? event.helper ? `Food from ${event.helper}` : event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested' : event.helper ? `Stopping by: ${event.helper}` : event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted' : event.helper ? (event.title.toLowerCase().includes('food') ? `Food from ${event.helper}` : `Confirmed with ${event.helper}`) : isNoSupport(event.helpNeeded) ? (event.forWho === 'Mary' ? 'Unavailable' : 'Busy') : event.requestPending ? event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted' : event.helpNeeded}</em>
           </span>
@@ -894,12 +909,12 @@ function AvailabilityThanksModal({ onClose }: { onClose: () => void }) {
 }
 
 function EventDetailsModal({ onSignUp, event, organizer, availability, onClose, onEdit, onAssign }: { onSignUp: () => void; event: TeamEvent; organizer: boolean; availability: Availability[]; onClose: () => void; onEdit: () => void; onAssign: () => void }) {
-  return <ModalShell title={eventDisplayTitle(event)} onClose={onClose}>
+  return <ModalShell title={eventDisplayTitle(event, organizer)} onClose={onClose}>
     <div className="event-detail-summary">
       <div><small>When</small><strong>{event.dayLabel}<br />{eventTimeRangeLabel(event)}</strong></div>
       <div><small>{event.helper ? 'Confirmed' : event.helpNeeded === 'Group event' ? 'Open to everyone' : event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.helper ? event.helper : event.helpNeeded === 'Group event' ? 'Join Mary’s Team at the ALS walk' : event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Unavailable' : event.helpNeeded}</strong></div>
-      {shouldShowEventLocation(event) && <div><small>Where</small><strong>{event.location}</strong></div>}
-      <div><small>Details</small><p>{eventDisplayDetails(event)}</p></div>
+      {organizer && shouldShowEventLocation(event) && <div><small>Where</small><strong>{event.location}</strong></div>}
+      {(organizer || !isPrivateAppointment(event)) && <div><small>Details</small><p>{eventDisplayDetails(event, organizer)}</p></div>}
       {event.helper && <div><small>Confirmed</small><strong>{event.helper}</strong>{(event.helperEmail || event.helperPhone) && <span className="compact-contact">{event.helperEmail && <a href={`mailto:${event.helperEmail}`}>{event.helperEmail}</a>}{event.helperPhone && <a href={`tel:${event.helperPhone}`}>{event.helperPhone}</a>}</span>}</div>}
       {!event.helper && event.requestPending && <div><small>Status</small><strong>{event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted'}</strong></div>}
       {organizer && !event.helper && availability.length > 0 && <div><small>People who may be available</small><div className="compact-contact-list">{availability.slice(0, 8).map((entry) => <span key={entry.id}><strong>{entry.name}</strong><small>{event.isFlexible ? `${availabilityDayLabel(entry.day)}, ${availabilityTimeLabel(entry.time)}` : availabilityTimeLabel(entry.time)}</small><a href={`sms:${entry.phone}`}>Text {entry.phone}</a></span>)}</div></div>}
