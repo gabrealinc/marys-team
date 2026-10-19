@@ -838,7 +838,7 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
             <small>{eventTimeRangeLabel(event)}</small>
             <em>{eventPublicStatus(event)}</em>
           </span>
-        </button>) : <p>Not available.</p>}
+        </button>) : null}
       </div>
     </section>)}
   </div>
