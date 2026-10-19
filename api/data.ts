@@ -994,41 +994,59 @@ export default async function handler(request: VercelRequest, response: VercelRe
     }
 
     if (action === 'saveFamilyBusyDates') {
-      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to update work or away days.')
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to update a family calendar.')
       const person = clean(request.body?.person, 20)
-      const dates: string[] = Array.isArray(request.body?.dates) ? [...new Set<string>(request.body.dates.map((date: unknown) => clean(date, 8)).filter((date: string) => /^\d{8}$/.test(date)))].slice(0, 60) : []
-      const startTime = clean(request.body?.startTime, 5)
-      const endTime = clean(request.body?.endTime, 5)
       const rangeStart = clean(request.body?.rangeStart, 8)
       const rangeEnd = clean(request.body?.rangeEnd, 8)
       if (!['Stu', 'Gabby', 'Spencer'].includes(person)) return sendError(response, 400, 'Choose Stu, Gabby, or Spencer.')
-      if (!/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || endTime <= startTime) return sendError(response, 400, 'Choose valid starting and ending times.')
       if (!/^\d{8}$/.test(rangeStart) || !/^\d{8}$/.test(rangeEnd) || rangeEnd < rangeStart) return sendError(response, 400, 'Choose a valid calendar range.')
+      const rawEntries: unknown[] = Array.isArray(request.body?.entries) ? request.body.entries : []
+      const entries = rawEntries.map((item) => {
+        const value = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+        return {
+          date: clean(value.date, 8),
+          kind: ['Work', 'Appointment', 'Away'].includes(String(value.kind)) ? String(value.kind) : 'Work',
+          startTime: clean(value.startTime, 5),
+          endTime: clean(value.endTime, 5),
+        }
+      }).filter((entry) => /^\d{8}$/.test(entry.date) && entry.date >= rangeStart && entry.date <= rangeEnd && /^\d{2}:\d{2}$/.test(entry.startTime) && /^\d{2}:\d{2}$/.test(entry.endTime) && entry.endTime > entry.startTime).slice(0, 60)
+      if (entries.length !== rawEntries.length) return sendError(response, 400, 'Check every selected date and time.')
       const tracked = await sql`
         SELECT id, SUBSTRING(event_date, 1, 8) AS day, schedule_source AS "scheduleSource"
         FROM team_events
         WHERE for_who = ${person}
           AND SUBSTRING(event_date, 1, 8) BETWEEN ${rangeStart} AND ${rangeEnd}
-          AND (schedule_source = 'family_busy' OR (${person} = 'Stu' AND schedule_source = 'stu_work'))
+          AND schedule_source IN ('family_busy', 'family_work', 'stu_work')
+        ORDER BY created_at
       `
-      const selected = new Set(dates)
+      const byDate = new Map(entries.map((entry) => [entry.date, entry]))
       for (const row of tracked) {
         const day = String(row.day)
-        if (!selected.has(day)) {
-          if (row.scheduleSource === 'stu_work') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${day}) ON CONFLICT DO NOTHING`
+        if (!byDate.has(day)) {
+          if (['family_work', 'stu_work'].includes(String(row.scheduleSource))) {
+            await sql`INSERT INTO family_work_exceptions (person, work_date) VALUES (${person}, ${day}) ON CONFLICT DO NOTHING`
+            if (person === 'Stu') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${day}) ON CONFLICT DO NOTHING`
+          }
           await sql`DELETE FROM team_events WHERE id = ${String(row.id)}`
         }
       }
-      for (const day of dates) {
-        const matching = tracked.find((row) => String(row.day) === day && selected.has(day))
-        const isoDate = `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`
+      for (const entry of entries) {
+        const isoDate = `${entry.date.slice(0, 4)}-${entry.date.slice(4, 6)}-${entry.date.slice(6, 8)}`
         const dayLabel = new Date(`${isoDate}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-        const title = person === 'Stu' ? 'Stu at Work' : `${person} Work or Away`
-        if (!matching) {
-          await sql`INSERT INTO team_events (id, category, for_who, event_date, day_label, event_time, end_time, title, details, location, help_needed, schedule_source, is_schedule_exception) VALUES (${randomUUID()}, 'family', ${person}, ${`${day}T${startTime.replace(':', '')}00`}, ${dayLabel}, ${startTime}, ${endTime}, ${title}, ${`${person} is working.`}, 'Home', 'Spend time with Mary', 'family_busy', TRUE)`
+        const title = entry.kind === 'Work' ? `${person} Work` : entry.kind === 'Appointment' ? `${person} Appointment` : `${person} Away`
+        const eventDate = `${entry.date}T${entry.startTime.replace(':', '')}00`
+        const existing = tracked.find((row) => String(row.day) === entry.date)
+        await sql`INSERT INTO family_work_exceptions (person, work_date) VALUES (${person}, ${entry.date}) ON CONFLICT DO NOTHING`
+        if (person === 'Stu') await sql`INSERT INTO stu_work_exceptions (work_date) VALUES (${entry.date}) ON CONFLICT DO NOTHING`
+        if (existing) {
+          await sql`UPDATE team_events SET event_date = ${eventDate}, day_label = ${dayLabel}, event_time = ${entry.startTime}, end_time = ${entry.endTime}, title = ${title}, details = ${`${person} is unavailable.`}, help_needed = 'Spend time with Mary', schedule_source = 'family_busy', is_schedule_exception = TRUE WHERE id = ${String(existing.id)}`
+          const extras = tracked.filter((row) => String(row.day) === entry.date && String(row.id) !== String(existing.id))
+          for (const extra of extras) await sql`DELETE FROM team_events WHERE id = ${String(extra.id)}`
+        } else {
+          await sql`INSERT INTO team_events (id, category, for_who, event_date, day_label, event_time, end_time, title, details, location, help_needed, schedule_source, is_schedule_exception) VALUES (${randomUUID()}, 'family', ${person}, ${eventDate}, ${dayLabel}, ${entry.startTime}, ${entry.endTime}, ${title}, ${`${person} is unavailable.`}, 'Home', 'Spend time with Mary', 'family_busy', TRUE)`
         }
       }
-      return response.status(200).json({ saved: dates.length })
+      return response.status(200).json({ saved: entries.length })
     }
 
     if (action === 'addEvent' || action === 'addEventBatch') {
