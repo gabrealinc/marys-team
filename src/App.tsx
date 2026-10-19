@@ -1429,7 +1429,7 @@ function FamilyBusyDatesModal({ person, events, inTownDates, livesWithMary, onCl
       const existing = current.find((entry) => entry.date === activeDate)
       return existing
         ? current.map((entry) => entry.date === activeDate ? { ...entry, kind } : entry)
-        : [...current, { date: activeDate, kind, startTime: '09:00', endTime: '17:00' }].sort((a, b) => a.date.localeCompare(b.date))
+        : [...current, { date: activeDate, kind, startTime: person === 'Stu' && kind === 'Work' ? '10:00' : '09:00', endTime: '17:00' }].sort((a, b) => a.date.localeCompare(b.date))
     })
   }
 
