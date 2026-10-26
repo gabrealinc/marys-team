@@ -680,7 +680,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         const date = new Date(`${firstDay}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + offset)
         const key = date.toISOString().slice(0, 10).replaceAll('-', '')
         for (const nurse of careTeam.filter((member) => nurseOnDate(member, key))) {
-          nurseEvents.push({ id: `nurse:${nurse.id}:${key}`, category: 'appointment', forWho: 'Mary', date: `${key}T${nurse.startTime.replace(':', '')}00`, dayLabel: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }), time: nurse.startTime, endTime: nurse.endTime, title: 'Nurse with Mary', details: 'Care is covered during this time. No visitors or drop-ins, please.', helpNeeded: 'No help needed', helper: isOrganizer ? nurse.name : 'Nurse', helperPersonId: (nurse as CareTeamMember & { personId?: string }).personId, scheduleSource: 'nurse_coverage' })
+          nurseEvents.push({ id: `nurse:${nurse.id}:${key}`, category: 'appointment', forWho: 'Mary', date: `${key}T${nurse.startTime.replace(':', '')}00`, dayLabel: date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }), time: nurse.startTime, endTime: nurse.endTime, title: 'Nurse with Mary', details: 'Care is covered during this time. No visitors or drop-ins, please.', helpNeeded: 'No help needed', helper: nurse.name, helperPersonId: (nurse as CareTeamMember & { personId?: string }).personId, scheduleSource: 'nurse_coverage' })
         }
       }
       const templates = isOrganizer ? await sql`SELECT id, name, items FROM schedule_templates ORDER BY name` : []

@@ -6,6 +6,28 @@ export type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
 export type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
 export type CareTeamMember = { id: string; personId?: string; name: string; phone: string; email: string; role: 'Nurse' | 'Helper'; weekdays: number[]; startTime: string; endTime: string; autoAssign: boolean }
 const isNoSupport = (value: string) => ['Group event', 'No help needed', 'No help needed, just sharing the schedule'].includes(value)
+
+export function careCoverageTitle(name = 'Nurse') {
+  const first = name.trim().split(/\s+/)[0] || 'Nurse'
+  return `${/^eri[ck]a$/i.test(first) ? 'Erika' : first} with Mary`
+}
+
+// One display block for covered care; retain the original family records for editing.
+export function simplifyCoveredSchedule(events: TeamEvent[]) {
+  const coverage = events.filter((event) => event.scheduleSource === 'nurse_coverage').map((event) => ({
+    ...event,
+    title: careCoverageTitle(event.helper),
+    details: /^eri[ck]a\b/i.test(event.helper || '') ? 'Gabby and Stu at work' : event.details,
+  }))
+  const sameCaregiver = (a: string, b: string) => a.trim().split(/\s+/)[0].toLowerCase().replace(/^erica$/, 'erika') === b.trim().split(/\s+/)[0].toLowerCase().replace(/^erica$/, 'erika')
+  const unique = coverage.filter((event, index) => !coverage.some((other, otherIndex) => otherIndex < index && other.date.slice(0, 8) === event.date.slice(0, 8) && other.time === event.time && other.endTime === event.endTime && sameCaregiver(other.helper || '', event.helper || '')))
+  return [...unique, ...events.filter((event) => event.scheduleSource !== 'nurse_coverage' && !unique.some((nurse) => {
+    if (event.date.slice(0, 8) !== nurse.date.slice(0, 8) || event.time < nurse.time || !event.endTime || event.endTime > nurse.endTime || event.proposalType || event.helpNeeded.toLowerCase().includes('ride') || event.helpNeeded === 'Group event') return false
+    const sameHelper = Boolean(event.helper && sameCaregiver(event.helper, nurse.helper || ''))
+    const coveredAppointment = event.forWho === 'Mary' && event.category === 'appointment' && isNoSupport(event.helpNeeded)
+    return sameHelper || coveredAppointment
+  }))].sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+}
 export function buildHelpNeededEvents(events: TeamEvent[], familyInTown: FamilyInTown, familyInTownDates: FamilyInTownDates) {
   const caregiverNames = Object.keys(familyInTown) as (keyof FamilyInTown)[]
   const caregiverBusy = events.filter((event) => caregiverNames.includes(event.forWho as keyof FamilyInTown) && event.helpNeeded === 'Spend time with Mary' && !event.proposalType && !event.isFlexible)

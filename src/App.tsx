@@ -6,7 +6,7 @@ import {
 import './App.css'
 import { EmailStatus } from './FamilyPlanning'
 import type { EmailNotice, WeekTemplate } from './FamilyPlanning'
-import { buildHelpNeededEvents } from '../lib/schedule'
+import { buildHelpNeededEvents, careCoverageTitle, simplifyCoveredSchedule } from '../lib/schedule'
 import type { TeamEvent, FamilyInTown, FamilyInTownDates, CareTeamMember } from '../lib/schedule'
 import { defaultVisitorPreferences, signupVisitorPreferences, mergeContacts, samePerson, foodTimeSlots } from '../lib/care'
 
@@ -105,9 +105,9 @@ function isPrivateAppointment(event: TeamEvent) {
 }
 
 function eventDisplayTitle(event: TeamEvent, revealPrivateDetails = false) {
+  if (event.scheduleSource === 'nurse_coverage') return careCoverageTitle(event.helper)
   if (revealPrivateDetails) return event.title
   if (event.helpNeeded === 'Group event') return event.title
-  if (event.scheduleSource === 'nurse_coverage') return 'At Home Appointment'
   if (event.proposalType === 'food' || event.title.toLowerCase().includes('food')) return 'Food drop-off'
   if (event.proposalType === 'stop_by') return 'Appointment'
   if (event.helpNeeded === 'Spend time with Mary') return 'Help at home'
@@ -119,6 +119,7 @@ function eventDisplayTitle(event: TeamEvent, revealPrivateDetails = false) {
 }
 
 function eventDisplayDetails(event: TeamEvent, revealPrivateDetails = false) {
+  if (event.scheduleSource === 'nurse_coverage') return /^eri[ck]a\b/i.test(event.helper || '') ? 'Gabby and Stu at work' : event.details
   if (isPrivateAppointment(event) && !revealPrivateDetails) return ''
   if (event.helpNeeded === 'Spend time with Mary' && needsTimeWithMary(event.forWho)) {
     return event.details || `${event.forWho} is working.`
@@ -127,6 +128,7 @@ function eventDisplayDetails(event: TeamEvent, revealPrivateDetails = false) {
 }
 
 function eventPublicStatus(event: TeamEvent) {
+  if (event.scheduleSource === 'nurse_coverage') return ''
   const isFood = event.proposalType === 'food' || event.title.toLowerCase().includes('food')
   if (event.helper) {
     if (isFood) return `Bringing it: ${event.helper}`
@@ -199,12 +201,12 @@ function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEv
     .map((event) => event.helpNeeded === 'Spend time with Mary' && event.forWho !== 'Mary'
       ? { ...event, title: 'Spend time with Mary', forWho: 'Mary' as const }
       : event)
-  return [
+  return simplifyCoveredSchedule([
     ...marySupport,
     ...events.filter((event) => event.proposalType === 'food' && event.helper),
     ...events.filter((event) => event.helpNeeded === 'Group event' || event.scheduleSource === 'nurse_coverage'),
     ...events.filter((event) => event.helpNeeded !== 'Group event' && event.scheduleSource !== 'nurse_coverage' && event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && !event.isFlexible),
-  ].sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
+  ])
 }
 
 function applyCareTeamAssignments(events: TeamEvent[], careTeam: CareTeamMember[]) {
@@ -862,7 +864,7 @@ function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[];
             <strong>{eventDisplayTitle(event)}</strong>
             {eventDisplayDetails(event) && eventDisplayTitle(event) !== event.title && <small>{eventDisplayDetails(event)}</small>}
             <small>{eventTimeRangeLabel(event)}</small>
-            <em>{eventPublicStatus(event)}</em>
+            {eventPublicStatus(event) && <em>{eventPublicStatus(event)}</em>}
           </span>
         </button>) : null}
       </div>
@@ -988,10 +990,10 @@ function EventDetailsModal({ onSignUp, event, organizer, availability, onClose, 
   return <ModalShell title={eventDisplayTitle(event, organizer)} onClose={onClose}>
     <div className="event-detail-summary">
       <div><small>When</small><strong>{event.dayLabel}<br />{eventTimeRangeLabel(event)}</strong></div>
-      <div><small>{event.helper ? 'Confirmed' : event.helpNeeded === 'Group event' ? 'Open to everyone' : event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.helper ? event.helper : event.helpNeeded === 'Group event' ? 'Join Mary’s Team at the ALS walk' : event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Unavailable' : event.helpNeeded}</strong></div>
+      {event.scheduleSource !== 'nurse_coverage' && <div><small>{event.helper ? 'Confirmed' : event.helpNeeded === 'Group event' ? 'Open to everyone' : event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.helper ? event.helper : event.helpNeeded === 'Group event' ? 'Join Mary’s Team at the ALS walk' : event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Unavailable' : event.helpNeeded}</strong></div>}
       {organizer && shouldShowEventLocation(event) && <div><small>Where</small><strong>{event.location}</strong></div>}
-      {(organizer || !isPrivateAppointment(event)) && <div><small>Details</small><p>{eventDisplayDetails(event, organizer)}</p></div>}
-      {event.helper && <div><small>Confirmed</small><strong>{event.helper}</strong>{(event.helperEmail || event.helperPhone) && <span className="compact-contact">{event.helperEmail && <a href={`mailto:${event.helperEmail}`}>{event.helperEmail}</a>}{event.helperPhone && <a href={`tel:${event.helperPhone}`}>{event.helperPhone}</a>}</span>}</div>}
+      {(organizer || event.scheduleSource === 'nurse_coverage' || !isPrivateAppointment(event)) && <div><small>Details</small><p>{eventDisplayDetails(event, organizer)}</p></div>}
+      {event.helper && event.scheduleSource !== 'nurse_coverage' && <div><small>Confirmed</small><strong>{event.helper}</strong>{(event.helperEmail || event.helperPhone) && <span className="compact-contact">{event.helperEmail && <a href={`mailto:${event.helperEmail}`}>{event.helperEmail}</a>}{event.helperPhone && <a href={`tel:${event.helperPhone}`}>{event.helperPhone}</a>}</span>}</div>}
       {!event.helper && event.requestPending && <div><small>Status</small><strong>{event.requesterName ? `Requested by ${event.requesterName}` : 'Request submitted'}</strong></div>}
       {organizer && !event.helper && availability.length > 0 && <div><small>People who may be available</small><div className="compact-contact-list">{availability.slice(0, 8).map((entry) => <span key={entry.id}><strong>{entry.name}</strong><small>{event.isFlexible ? `${availabilityDayLabel(entry.day)}, ${availabilityTimeLabel(entry.time)}` : availabilityTimeLabel(entry.time)}</small><a href={`sms:${entry.phone}`}>Text {entry.phone}</a></span>)}</div></div>}
     </div>

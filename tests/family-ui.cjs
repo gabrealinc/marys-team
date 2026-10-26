@@ -29,11 +29,11 @@ function load(relative) {
     return orig(id);
   };
   let source = fs.readFileSync(filename, 'utf8');
-  if (relative === 'src/App.tsx') source += '\nexport { FamilyScheduleEditor };';
+  if (relative === 'src/App.tsx') source += '\nexport { MaryCalendarModal, buildPublicScheduleEvents, UpcomingDaysList, EventDetailsModal };';
   m._compile(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2023, jsx: ts.JsxEmit.ReactJSX } }).outputText, filename);
   return m.exports;
 }
-const { FamilyScheduleEditor } = load('src/App.tsx');
+const { MaryCalendarModal } = load('src/App.tsx');
 const { WeeklyRoutine, EmailStatus } = load('src/FamilyPlanning.tsx');
 const root = createRoot(document.getElementById('root'));
 const click = async (label) => {
@@ -44,15 +44,13 @@ const click = async (label) => {
 const text = () => document.body.textContent;
 const event = { id: 'today', title: 'Today appointment', forWho: 'Mary', category: 'appointment', date: new Date().toISOString().slice(0, 10).replaceAll('-', '') + 'T120000', dayLabel: 'Today', time: '12:00', endTime: '13:00', details: '', helpNeeded: 'No help needed' };
 (async () => {
-  let decisions = 0; let routines = 0;
-  await React.act(async () => root.render(React.createElement(FamilyScheduleEditor, { events: [event, { ...event, id: 'future', title: 'Future appointment', date: '20991101T120000' }], needs: [{ ...event, title: 'Unfilled task', helpNeeded: 'Need a ride' }], requestsCount: 2, onReviewRequests: () => decisions++, onRoutines: () => routines++, onEdit: () => {}, onAdd: () => {} })));
+  let edited; let added;
+  await React.act(async () => root.render(React.createElement(MaryCalendarModal, { events: [event, { ...event, id: 'future', title: 'Future appointment', date: '20991101T120000' }], onClose: () => {}, onEdit: value => edited = value, onAdd: value => added = value })));
   assert(text().includes('Today appointment')); assert(!text().includes('Future appointment'));
-  await click('See all upcoming'); assert(text().includes('Future appointment'));
-  await click('Unfilled help'); assert(text().includes('Unfilled task')); assert(!text().includes('Future appointment'));
-  await click('Need a decision'); assert.equal(decisions, 1);
-  await click('Copy a week'); assert.equal(routines, 1);
+  await click('Today appointment'); assert.equal(edited.id, event.id);
+  await click('Add appointment on this date'); assert.equal(added.replaceAll('-', ''), event.date.slice(0, 8));
   let retries = 0;
-  await React.act(async () => root.render(React.createElement(EmailStatus, { notices: [{ id: 'email1', subject: 'Confirmation', recipient: 'helper@example.com', status: 'bounced', lastError: 'Mailbox not found' }], request: async () => { retries++; return {}; }, onRefresh: async () => {} })));
+  await React.act(async () => root.render(React.createElement(EmailStatus, { notices: [{ id: 'email1', subject: 'Confirmation', recipient: 'helper@example.com', status: 'bounced', lastError: 'Mailbox not found', createdAt: new Date().toISOString() }], request: async () => { retries++; return {}; }, onRefresh: async () => {} })));
   assert(text().includes('1 need attention')); assert(text().includes('Not delivered')); await click('Retry email'); assert.equal(retries, 1);
   const calls = [];
   await React.act(async () => root.render(React.createElement(WeeklyRoutine, { events: [], templates: [{ id: 'routine', name: 'Saved routine', items: [{}] }], onSaved: async () => {}, request: async body => { calls.push(body); return body.action === 'previewScheduleTemplate' ? { items: [{ ...event, id: 'copy1', exists: false, conflict: false }, { ...event, id: 'copy2', exists: false, conflict: true }] } : { added: 1 }; } })));
@@ -60,6 +58,28 @@ const event = { id: 'today', title: 'Today appointment', forWho: 'Mary', categor
   await click('Preview week'); assert(text().includes('Overlaps another item')); assert.equal(document.querySelectorAll('input[type="checkbox"]:disabled').length, 1);
   await click('Add 1 items'); assert(calls.some(call => call.action === 'applyScheduleTemplate' && call.selectedIds.length === 1 && call.selectedIds[0] === 'copy1'));
   assert(text().includes('1 items added'));
+  // Recurring care, calculated work coverage, and overlapping busy blocks display once.
+  const app = load('src/App.tsx');
+  const nurse = { ...event, id: 'nurse', title: 'Nurse with Mary', time: '09:00', endTime: '14:00', helper: 'Erica Moriarty', scheduleSource: 'nurse_coverage' };
+  const busy = { ...event, id: 'busy', title: 'At Home Appointment', time: '09:30', endTime: '10:30' };
+  const care = { ...event, id: 'care', title: 'Spend time with Mary', forWho: 'Family', time: '10:00', endTime: '14:00', helper: 'Erica Moriarty', helpNeeded: 'Spend time with Mary', isCalculatedCoverage: true };
+  const meal = { ...event, id: 'meal', title: 'Food drop-off', category: 'company', time: '14:00', endTime: '14:30', proposalType: 'food', helper: 'Meal Helper' };
+  const display = app.buildPublicScheduleEvents([nurse, busy, meal], [care]);
+  assert.deepEqual(display.map(e => e.id), ['nurse', 'meal']);
+  assert.equal(display[0].title, 'Erika with Mary');
+  assert.equal(display[0].details, 'Gabby and Stu at work');
+  const projected = load('lib/public-schedule.ts').publicSchedule([nurse, busy, care, meal], [], { Stu: true, Gabby: true, Spencer: false }, { Stu: [], Gabby: [], Spencer: [] });
+  assert.equal(projected.length, 2);
+  assert.equal(projected[0].title, 'Erika with Mary');
+  assert.equal(projected[0].details, 'Gabby and Stu at work');
+  assert(!JSON.stringify(projected).includes('Moriarty'));
+  const ride = { ...busy, id: 'ride', helpNeeded: 'Need a ride' };
+  assert(app.buildPublicScheduleEvents([nurse], [ride, { ...ride, helper: 'Driver' }]).some(e => e.id === 'ride'));
+  await React.act(async () => root.render(React.createElement(app.UpcomingDaysList, { events: display, daysToShow: 1, onOpen: () => {} })));
+  assert.equal([...document.querySelectorAll('strong')].filter(e => e.textContent === 'Erika with Mary').length, 1);
+  assert(!/At Home Appointment|Help at home|Unavailable|With Erica/.test(text()));
+  await React.act(async () => root.render(React.createElement(app.EventDetailsModal, { event: display[0], organizer: false, availability: [], onClose: () => {} })));
+  assert(text().includes('Gabby and Stu at work')); assert(!/Confirmed|Unavailable|No visitors/.test(text()));
   // Fundraising is absent before submission, including legacy preference text.
   let failOffer = true;
   const legacyPreferences = 'No drop-ins. Please contribute to the GoFundMe. Bring food when slots are open.';
@@ -89,5 +109,5 @@ const event = { id: 'today', title: 'Today appointment', forWho: 'Mary', categor
   assert.equal(document.querySelectorAll('a[href*="gofundme"]').length, 1);
   assert.equal(document.querySelectorAll('a[href*="secure.alsaz.org"]').length, 1);
   await React.act(async () => root.unmount());
-  console.log('PASS: interactive family today/upcoming/open views, request and routine navigation, failed-email retry, routine preview excludes conflicts and submits only selected safe items.');
+  console.log('PASS: family calendar appointment editing; consolidated public and family care coverage with clean details and retained rides/food; email retry; routine preview; discreet availability thank-you.');
 })().catch(error => { console.error(error); process.exitCode = 1; });
