@@ -78,6 +78,7 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_overview TEXT NOT NULL DEFAULT 'Meals are for two people. We generally enjoy whole foods with a protein, vegetables, and a grain. Chicken is our first choice. Steak or beef is welcome when it fits the dish.'`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_avoid TEXT NOT NULL DEFAULT 'No pork.'`
   await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_suggestions TEXT NOT NULL DEFAULT '[{"id":"mendocino-farms","type":"restaurant","name":"Mendocino Farms","items":[],"note":""}]'`
+  await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_blocked_dates TEXT NOT NULL DEFAULT ''`
   await sql`UPDATE team_events SET title = 'Stu at Work' WHERE schedule_source = 'stu_work' AND title <> 'Stu at Work'`
   await sql`UPDATE team_events SET details = ${defaultEventDetails} WHERE TRIM(details) = '' OR details = 'See Mary or Stu for details.' OR details = 'Text Mary directly if you have any questions.'`
   await sql`UPDATE team_events SET for_who = 'Mary' WHERE category = 'appointment' AND for_who = 'Family'`
