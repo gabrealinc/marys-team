@@ -312,11 +312,11 @@ function App() {
   const refreshing = useRef(false)
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const calculatedHelpNeeded = applyCareTeamAssignments(buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates), careTeam)
+  const unavailableFoodDates = [...new Set([...foodReservedDates, ...foodBlockedDates])]
   const foodNeeds: TeamEvent[] = getThirtyDays().flatMap((day) => {
     const slots = foodTimeSlots(day.dateKey, foodSettings, unavailableFoodDates, teamEvents)
     return slots.length ? [{ id: `food-open-${day.dateKey}`, category: 'home' as const, forWho: 'Mary' as const, date: `${day.dateKey}T${slots[0].replace(':', '')}00`, dayLabel: day.fullDay, time: slots[0], endTime: addMinutes(slots[slots.length - 1], 30), title: 'Bring food', details: 'Choose this day to see food preferences, select an available drop-off time, and tell us what you’re bringing. Brief drop-off only; no social visit.', helpNeeded: 'Food drop-off', publicAction: 'food' as const }]: []
   })
-  const unavailableFoodDates = [...new Set([...foodReservedDates, ...foodBlockedDates])]
   const supportFeedEvents = [...calculatedHelpNeeded.flatMap((event) => applyNurseCoverage(event, careTeam)), ...foodNeeds]
   const helpFeedEvents = supportFeedEvents.filter((event) => !event.helper && !event.requestPending)
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
