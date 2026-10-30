@@ -275,7 +275,7 @@ function App() {
   const [assigningEvent, setAssigningEvent] = useState<TeamEvent | null>(null)
   const [editingEvent, setEditingEvent] = useState<TeamEvent | null>(null)
   const [showAvailability, setShowAvailability] = useState(false)
-  const [showPlanRequest, setShowPlanRequest] = useState<PlanType | null>(null)
+  const [showPlanRequest, setShowPlanRequest] = useState<PlanType | null>(() => new URLSearchParams(window.location.search).get('food') === '1' ? 'food' : null)
   const [planRequestWindow, setPlanRequestWindow] = useState<TeamEvent | null>(null)
   const [showHelp, setShowHelp] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
@@ -297,6 +297,7 @@ function App() {
   const [familyInTown, setFamilyInTown] = useState<FamilyInTown>({ Stu: true, Gabby: true, Spencer: false })
   const [familyInTownDates, setFamilyInTownDates] = useState<FamilyInTownDates>({ Stu: [], Gabby: [], Spencer: [] })
   const [foodReservedDates, setFoodReservedDates] = useState<string[]>([])
+  const [foodBlockedDates, setFoodBlockedDates] = useState<string[]>([])
   const [careTeam, setCareTeam] = useState<CareTeamMember[]>([])
   const [supportContacts, setSupportContacts] = useState<SupportContact[]>([])
   const [showSupportContact, setShowSupportContact] = useState(false)
@@ -312,9 +313,10 @@ function App() {
   const scheduleDates = new Set(getThirtyDays().map((day) => day.dateKey))
   const calculatedHelpNeeded = applyCareTeamAssignments(buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates), careTeam)
   const foodNeeds: TeamEvent[] = getThirtyDays().flatMap((day) => {
-    const slots = foodTimeSlots(day.dateKey, foodSettings, foodReservedDates, teamEvents)
+    const slots = foodTimeSlots(day.dateKey, foodSettings, unavailableFoodDates, teamEvents)
     return slots.length ? [{ id: `food-open-${day.dateKey}`, category: 'home' as const, forWho: 'Mary' as const, date: `${day.dateKey}T${slots[0].replace(':', '')}00`, dayLabel: day.fullDay, time: slots[0], endTime: addMinutes(slots[slots.length - 1], 30), title: 'Bring food', details: 'Choose this day to see food preferences, select an available drop-off time, and tell us what you’re bringing. Brief drop-off only; no social visit.', helpNeeded: 'Food drop-off', publicAction: 'food' as const }]: []
   })
+  const unavailableFoodDates = [...new Set([...foodReservedDates, ...foodBlockedDates])]
   const supportFeedEvents = [...calculatedHelpNeeded.flatMap((event) => applyNurseCoverage(event, careTeam)), ...foodNeeds]
   const helpFeedEvents = supportFeedEvents.filter((event) => !event.helper && !event.requestPending)
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
@@ -347,6 +349,7 @@ function App() {
       setFamilyInTown(data.familyInTown || { Stu: true, Gabby: true, Spencer: false })
       setFamilyInTownDates(data.familyInTownDates || { Stu: [], Gabby: [], Spencer: [] })
       setFoodReservedDates(Array.isArray(data.foodReservedDates) ? data.foodReservedDates : [])
+      setFoodBlockedDates(Array.isArray(data.foodBlockedDates) ? data.foodBlockedDates : [])
       setCareTeam(Array.isArray(data.careTeam) ? data.careTeam : [])
       setSupportContacts(Array.isArray(data.supportContacts) ? data.supportContacts : [])
       setCloudError('')
@@ -379,6 +382,7 @@ function App() {
       setCareTeam(Array.isArray(data.careTeam) ? data.careTeam : [])
       setSupportContacts(Array.isArray(data.supportContacts) ? data.supportContacts : [])
       setFoodReservedDates(Array.isArray(data.foodReservedDates) ? data.foodReservedDates : [])
+      setFoodBlockedDates(Array.isArray(data.foodBlockedDates) ? data.foodBlockedDates : [])
       setCloudError('')
       if (data.organizer) await loadPendingRequests()
     }).catch((error) => {
@@ -459,6 +463,33 @@ function App() {
       return true
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'We could not update food drop-off days.')
+      return false
+    }
+  }
+
+  async function saveFoodBlockedDates(dates: string[]) {
+    try {
+      const result = await apiRequest({ action: 'saveFoodBlockedDates', dates })
+      setFoodBlockedDates(result.foodBlockedDates || dates)
+      await refreshData()
+      setMessage('Specific food drop-off dates were updated.')
+      window.setTimeout(() => setMessage(''), 5000)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not update these food dates.')
+      return false
+    }
+  }
+
+  async function offerDifferentFoodDates(requestId: string, dates: string[], note: string) {
+    try {
+      const result = await apiRequest({ action: 'offerDifferentFoodDates', requestId, dates, note })
+      await Promise.all([refreshData(), loadPendingRequests()])
+      setMessage(`The original food request was closed.${result.emailSent ? ' The alternative dates email was accepted by the email service.' : ' The email is saved for automatic retry. Check Email updates.'}`)
+      window.setTimeout(() => setMessage(''), 6000)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not send different food dates.')
       return false
     }
   }
@@ -762,7 +793,7 @@ function App() {
           </div>
         </section>
         <div className="helper-note"><HeartHandshake aria-hidden="true" /><p><strong>New here?</strong> Choose Help Needed or Bring Food. The page will show exactly what is open.</p><button type="button" onClick={() => setShowHelp(true)}>See how it works</button></div>
-        {organizer && <OrganizerPanel needs={helpFeedEvents} notifications={notifications} templates={templates} onRefresh={async () => { await refreshData(); await loadPendingRequests() }} homeAddress={homeAddress} onSaveHomeAddress={saveHomeAddress} onAddForPerson={(contact) => { setAddInitialDate(undefined); setAddContact(contact); setAddForWho('Family'); setShowAdd(true) }} availability={availability} visitorPreferences={visitorPreferences} onSaveVisitorPreferences={saveVisitorPreferences} onSavePerson={savePerson} requests={pendingRequests} events={teamEvents} displayEvents={publicScheduleEvents} careTeam={careTeam} supportContacts={supportContacts} foodSettings={foodSettings} foodPreferences={foodPreferences} stuWorkDefaults={stuWorkDefaults} onSaveStuWorkHours={saveStuWorkHours} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveCareTeam={saveCareTeamMember} onSaveFoodSettings={saveFoodSettings} onSaveFoodPreferences={saveFoodPreferences} onSaveVisitSettings={saveVisitSettings} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={setInTownDatesPerson} onEditBusyDates={setBusyPerson} onOpenMaryCalendar={() => setMaryCalendarOpen(true)} onAddSchedule={(forWho) => { setAddInitialDate(undefined); setAddForWho(forWho); setShowAdd(true) }} onEditEvent={(event) => { if (event.publicAction) openPlanRequest(event.publicAction, event); else if (event.isCalculatedCoverage) setAssigningEvent(event); else setEditingEvent(event) }} onDecide={decideRequest} onLogout={organizerLogout} />}
+        {organizer && <OrganizerPanel needs={helpFeedEvents} notifications={notifications} templates={templates} onRefresh={async () => { await refreshData(); await loadPendingRequests() }} homeAddress={homeAddress} onSaveHomeAddress={saveHomeAddress} onAddForPerson={(contact) => { setAddInitialDate(undefined); setAddContact(contact); setAddForWho('Family'); setShowAdd(true) }} availability={availability} visitorPreferences={visitorPreferences} onSaveVisitorPreferences={saveVisitorPreferences} onSavePerson={savePerson} requests={pendingRequests} events={teamEvents} displayEvents={publicScheduleEvents} careTeam={careTeam} supportContacts={supportContacts} foodSettings={foodSettings} foodPreferences={foodPreferences} foodReservedDates={foodReservedDates} foodBlockedDates={foodBlockedDates} stuWorkDefaults={stuWorkDefaults} onSaveStuWorkHours={saveStuWorkHours} visitSettings={visitSettings} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveCareTeam={saveCareTeamMember} onSaveFoodSettings={saveFoodSettings} onSaveFoodBlockedDates={saveFoodBlockedDates} onSaveFoodPreferences={saveFoodPreferences} onOfferDifferentDates={offerDifferentFoodDates} onSaveVisitSettings={saveVisitSettings} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={setInTownDatesPerson} onEditBusyDates={setBusyPerson} onOpenMaryCalendar={() => setMaryCalendarOpen(true)} onAddSchedule={(forWho) => { setAddInitialDate(undefined); setAddForWho(forWho); setShowAdd(true) }} onEditEvent={(event) => { if (event.publicAction) openPlanRequest(event.publicAction, event); else if (event.isCalculatedCoverage) setAssigningEvent(event); else setEditingEvent(event) }} onDecide={decideRequest} onLogout={organizerLogout} />}
         {cloudError && <div className="cloud-message error" role="alert"><p><strong>We could not reach the shared schedule.</strong> {cloudError}</p><button type="button" onClick={() => void refreshData(true)}>Try again</button></div>}
         {!cloudError && loading && <div className="cloud-message" role="status"><p><strong>Opening the shared schedule...</strong></p></div>}
         <section className="schedule" aria-labelledby="schedule-title">
@@ -799,7 +830,7 @@ function App() {
       {assigningEvent && <AssignCoverageModal event={assigningEvent} contacts={knownContacts(teamEvents, availability, [...careTeam.map((member) => ({ personId: member.personId, name: member.name, phone: member.phone, email: member.email })), ...supportContacts.map((contact) => ({ personId: contact.personId, name: contact.name, phone: contact.phone, email: contact.email }))])} onClose={() => setAssigningEvent(null)} onAssign={(contact) => assignCalculatedCoverage(assigningEvent, contact)} />}
       {editingEvent && <EditEventModal event={editingEvent} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />}
       {showAvailability && <AvailabilityModal visitorPreferences={visitorPreferences} onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
-      {showPlanRequest === 'food' ? <FoodSignupModal initialWindow={planRequestWindow} visitorPreferences={visitorPreferences} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} /> : showPlanRequest && <PlanRequestModal visitorPreferences={visitorPreferences} type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={foodReservedDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
+      {showPlanRequest === 'food' ? <FoodSignupModal initialWindow={planRequestWindow} visitorPreferences={visitorPreferences} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} foodReservedDates={unavailableFoodDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} /> : showPlanRequest && <PlanRequestModal visitorPreferences={visitorPreferences} type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={unavailableFoodDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => samePerson({ ...editingAvailability, email: editingAvailability.email || '' }, { ...entry, email: entry.email || '' }) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
       {showAdd && <AddEventModal initialContact={addContact} initialForWho={addForWho} initialDate={addInitialDate} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => { setShowAdd(false); setAddContact(undefined); setAddInitialDate(undefined) }} onSave={saveEvents} />}
       {maryCalendarOpen && <MaryCalendarModal events={teamEvents} onClose={() => setMaryCalendarOpen(false)} onAdd={(date) => { setMaryCalendarOpen(false); setAddInitialDate(date); setAddForWho('Mary'); setShowAdd(true) }} onEdit={(event) => { setMaryCalendarOpen(false); setEditingEvent(event) }} />}
@@ -815,10 +846,10 @@ function App() {
   )
 }
 
-function getThirtyDays() {
+function getThirtyDays(count = 30) {
   const start = new Date()
   start.setHours(0, 0, 0, 0)
-  return Array.from({ length: 30 }, (_, index) => {
+  return Array.from({ length: count }, (_, index) => {
     const date = new Date(start)
     date.setDate(start.getDate() + index)
     return {
@@ -1047,14 +1078,16 @@ function PersonModal({ person, sources, events, requests, member, availability, 
   </ModalShell>
 }
 
-function OrganizerPanel({ notifications, onRefresh, homeAddress, onSaveHomeAddress, availability, visitorPreferences, onSaveVisitorPreferences, onSavePerson, onAddForPerson, requests, events, careTeam, supportContacts, foodSettings, foodPreferences, stuWorkDefaults, onSaveStuWorkHours, familyInTown, familyInTownDates, onSaveCareTeam, onSaveFoodSettings, onSaveFoodPreferences, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onOpenMaryCalendar, onAddSchedule, onEditEvent, onDecide, onLogout }: { needs: TeamEvent[]; notifications: EmailNotice[]; templates: WeekTemplate[]; onRefresh: () => Promise<void>; homeAddress: string; onSaveHomeAddress: (address: string) => Promise<boolean>; availability: Availability[]; visitorPreferences: string; onSaveVisitorPreferences: (text: string) => Promise<boolean>; onSavePerson: (originals: DriverContact[], contact: DriverContact) => Promise<boolean>; onAddForPerson: (contact: DriverContact) => void; requests: PendingRequest[]; events: TeamEvent[]; displayEvents: TeamEvent[]; careTeam: CareTeamMember[]; supportContacts: SupportContact[]; foodSettings: FoodSettings; foodPreferences: FoodPreferences; stuWorkDefaults: StuWorkDefaults; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveCareTeam: (member: CareTeamMember) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onOpenMaryCalendar: () => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
+function OrganizerPanel({ needs, notifications, onRefresh, homeAddress, onSaveHomeAddress, availability, visitorPreferences, onSaveVisitorPreferences, onSavePerson, onAddForPerson, requests, events, careTeam, supportContacts, foodSettings, foodPreferences, foodReservedDates, foodBlockedDates, stuWorkDefaults, onSaveStuWorkHours, familyInTown, familyInTownDates, onSaveCareTeam, onSaveFoodSettings, onSaveFoodBlockedDates, onSaveFoodPreferences, onOfferDifferentDates, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onOpenMaryCalendar, onAddSchedule, onEditEvent, onDecide, onLogout }: { needs: TeamEvent[]; notifications: EmailNotice[]; templates: WeekTemplate[]; onRefresh: () => Promise<void>; homeAddress: string; onSaveHomeAddress: (address: string) => Promise<boolean>; availability: Availability[]; visitorPreferences: string; onSaveVisitorPreferences: (text: string) => Promise<boolean>; onSavePerson: (originals: DriverContact[], contact: DriverContact) => Promise<boolean>; onAddForPerson: (contact: DriverContact) => void; requests: PendingRequest[]; events: TeamEvent[]; displayEvents: TeamEvent[]; careTeam: CareTeamMember[]; supportContacts: SupportContact[]; foodSettings: FoodSettings; foodPreferences: FoodPreferences; foodReservedDates: string[]; foodBlockedDates: string[]; stuWorkDefaults: StuWorkDefaults; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; visitSettings: VisitSettings; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveCareTeam: (member: CareTeamMember) => Promise<boolean>; onSaveFoodSettings: (settings: FoodSettings) => Promise<boolean>; onSaveFoodBlockedDates: (dates: string[]) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onOfferDifferentDates: (requestId: string, dates: string[], note: string) => Promise<boolean>; onSaveVisitSettings: (settings: VisitSettings) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onOpenMaryCalendar: () => void; onAddSchedule: (forWho: ForWho) => void; onEditEvent: (event: TeamEvent) => void; onDecide: (id: string, decision: 'approve' | 'decline', declineReason?: string) => void; onLogout: () => void }) {
   const [tab, setTab] = useState<'requests' | 'people' | 'preferences'>('preferences')
   const [declining, setDeclining] = useState<PendingRequest | null>(null)
+  const [reschedulingFood, setReschedulingFood] = useState<PendingRequest | null>(null)
   const [editingMember, setEditingMember] = useState<CareTeamMember | null>(null)
   const [selectedPerson, setSelectedPerson] = useState<DriverContact | null>(null)
   const sources = [...careTeam, ...supportContacts, ...events.filter((event) => event.helper && event.scheduleSource !== 'nurse_coverage').map((event) => ({ personId: event.helperPersonId, name: event.helper || '', phone: event.helperPhone || '', email: event.helperEmail || '' })), ...availability.map((entry) => ({ ...entry, email: entry.email || '' })), ...requests.map((request) => ({ personId: request.personId, name: request.requesterName, phone: request.requesterPhone, email: request.requesterEmail }))]
   const people = mergeContacts(sources)
   const volunteerPeople = people.filter((person) => !person.familyKey && !careTeam.some((member) => samePerson(person, member)))
+  const openFoodDates = needs.filter((event) => event.publicAction === 'food')
   const matchesEvent = (person: DriverContact, event: TeamEvent) => samePerson(person, { personId: event.helperPersonId, name: event.helper || '', phone: event.helperPhone || '', email: event.helperEmail || '' })
   return <section className="organizer-panel" id="organizer-panel" aria-labelledby="organizer-title">
     <div className="organizer-heading"><div><p className="eyebrow">Private family area</p><h2 id="organizer-title">Edit &amp; Approve</h2></div><button className="text-button" type="button" onClick={onLogout}>Close private access</button></div>
@@ -1065,15 +1098,16 @@ function OrganizerPanel({ notifications, onRefresh, homeAddress, onSaveHomeAddre
     </div>
 
     {tab === 'people' && <div className="family-schedule-actions"><button className="primary-button" type="button" onClick={() => setSelectedPerson({ name: '', phone: '', email: '' })}>+ Add volunteer</button></div>}
-    {tab === 'requests' && (requests.length > 0 ? <section className="people-summary" id="approval-inbox"><div className="people-summary-heading"><div><h3>Needs approval</h3><p>Approve or decline each request here. There is no separate request area to manage.</p></div><strong>{requests.length} waiting</strong></div><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div><button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></section> : <div className="organizer-empty" id="approval-inbox"><h3>No requests are waiting</h3><p>New requests will appear here even if email is delayed.</p></div>)}
+    {tab === 'requests' && (requests.length > 0 ? <section className="people-summary" id="approval-inbox"><div className="people-summary-heading"><div><h3>Needs approval</h3><p>Approve or decline each request here. There is no separate request area to manage.</p></div><strong>{requests.length} waiting</strong></div><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div>{request.proposalType === 'food' && <button className="secondary-button compact-button" type="button" onClick={() => setReschedulingFood(request)}>Offer different dates</button>}<button className="text-button" type="button" onClick={() => setDeclining(request)}>Decline</button><button className="primary-button" type="button" onClick={() => onDecide(request.id, 'approve')}><Check aria-hidden="true" /> Approve</button></div></article>)}</div></section> : <div className="organizer-empty" id="approval-inbox"><h3>No requests are waiting</h3><p>New requests will appear here even if email is delayed.</p></div>)}
     {tab === 'people' ? <div className="people-summary"><p className="organizer-intro">Friends and volunteers are saved here. Nurses, hired help, and family members are managed in Home Settings.</p>{volunteerPeople.map((person) => {
       const commitments = events.filter((event) => event.scheduleSource !== 'nurse_coverage' && matchesEvent(person, event))
       const waiting = requests.filter((request) => samePerson(person, { personId: request.personId, name: request.requesterName, phone: request.requesterPhone, email: request.requesterEmail }))
       return <section key={`${person.name}-${person.email}-${person.phone}`}><button className="person-select" type="button" onClick={() => setSelectedPerson(person)}><span><strong>{person.name}</strong><small>Volunteer</small><small>{commitments.length} commitments{waiting.length ? ` · ${waiting.length} pending` : ''}</small></span><span>View &amp; edit <ChevronRight aria-hidden="true" /></span></button></section>
-    })}{!volunteerPeople.length && <p>No saved friends or volunteers yet.</p>}</div> : tab === 'preferences' ? <FamilyPreferences careTeam={careTeam} onEditCareMember={setEditingMember} foodSettings={foodSettings} foodPreferences={foodPreferences} stuWorkDefaults={stuWorkDefaults} onSaveStuWorkHours={onSaveStuWorkHours} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveFood={onSaveFoodSettings} onSaveFoodPreferences={onSaveFoodPreferences} onSaveFamilyInTown={onSaveFamilyInTown} onEditInTownDates={onEditInTownDates} onEditBusyDates={onEditBusyDates} onOpenMaryCalendar={onOpenMaryCalendar} onAddSchedule={onAddSchedule} /> : null}
+    })}{!volunteerPeople.length && <p>No saved friends or volunteers yet.</p>}</div> : tab === 'preferences' ? <FamilyPreferences careTeam={careTeam} onEditCareMember={setEditingMember} foodSettings={foodSettings} foodReservedDates={foodReservedDates} foodBlockedDates={foodBlockedDates} foodPreferences={foodPreferences} stuWorkDefaults={stuWorkDefaults} onSaveStuWorkHours={onSaveStuWorkHours} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onSaveFood={onSaveFoodSettings} onSaveFoodBlockedDates={onSaveFoodBlockedDates} onSaveFoodPreferences={onSaveFoodPreferences} onSaveFamilyInTown={onSaveFamilyInTown} onEditInTownDates={onEditInTownDates} onEditBusyDates={onEditBusyDates} onOpenMaryCalendar={onOpenMaryCalendar} onAddSchedule={onAddSchedule} /> : null}
     {tab === 'preferences' && <><EmailStatus notices={notifications} request={apiRequest} onRefresh={onRefresh} /><PrivateAddressEditor address={homeAddress} onSave={onSaveHomeAddress} /><VisitorPreferencesEditor text={visitorPreferences} onSave={onSaveVisitorPreferences} /></>}
     {selectedPerson && <PersonModal person={selectedPerson} sources={sources} events={events} requests={requests} member={careTeam.find((item) => samePerson(selectedPerson, item))} availability={availability} onClose={() => setSelectedPerson(null)} onSave={onSavePerson} onEditEvent={(event) => { setSelectedPerson(null); onEditEvent(event) }} onAdd={() => { setSelectedPerson(null); onAddForPerson(selectedPerson) }} onEditMember={(member) => { setSelectedPerson(null); setEditingMember(member) }} onReviewRequests={() => { setSelectedPerson(null); document.getElementById('approval-inbox')?.scrollIntoView({ behavior: 'smooth' }) }} onDecide={onDecide} />}
     {declining && <DeclineRequestModal name={declining.requesterName} onClose={() => setDeclining(null)} onDecline={(reason) => { onDecide(declining.id, 'decline', reason); setDeclining(null) }} />}
+    {reschedulingFood && <OfferDifferentFoodDatesModal request={reschedulingFood} openDates={openFoodDates} onClose={() => setReschedulingFood(null)} onSend={async (dates, note) => { if (await onOfferDifferentDates(reschedulingFood.id, dates, note)) setReschedulingFood(null) }} />}
     {editingMember && <CareTeamMemberModal member={editingMember} onClose={() => setEditingMember(null)} onSave={async (member) => { if (await onSavePerson([editingMember], member) && await onSaveCareTeam(member)) setEditingMember(null) }} />}
   </section>
 }
@@ -1089,7 +1123,64 @@ function DeclineRequestModal({ name, onClose, onDecline }: { name: string; onClo
   return <ModalShell title="Decline this request" onClose={onClose}><form onSubmit={(event) => { event.preventDefault(); if (reason.trim()) onDecline(reason.trim()) }}><p className="modal-intro">Add a short, kind reason for {name}. It will be included in their email when an email address is available.</p><label htmlFor="decline-reason">Reason</label><textarea id="decline-reason" value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Example: We no longer need coverage at this time." autoFocus required /><div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="danger-button" type="submit" disabled={!reason.trim()}>Decline request</button></div></form></ModalShell>
 }
 
-function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodPreferences, stuWorkDefaults, onSaveStuWorkHours, familyInTown, familyInTownDates, onSaveFood, onSaveFoodPreferences, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onOpenMaryCalendar, onAddSchedule }: { careTeam: CareTeamMember[]; onEditCareMember: (member: CareTeamMember) => void; foodSettings: FoodSettings; foodPreferences: FoodPreferences; stuWorkDefaults: StuWorkDefaults; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onOpenMaryCalendar: () => void; onAddSchedule: (person: ForWho) => void }) {
+function OfferDifferentFoodDatesModal({ request, openDates, onClose, onSend }: { request: PendingRequest; openDates: TeamEvent[]; onClose: () => void; onSend: (dates: string[], note: string) => Promise<void> }) {
+  const choices = Array.from(new Map(openDates
+    .map((event) => [event.date.slice(0, 8), event])).values()).slice(0, 8)
+  const [selected, setSelected] = useState(() => choices.slice(0, 3).map((event) => event.date.slice(0, 8)))
+  const [note, setNote] = useState('')
+  const [sending, setSending] = useState(false)
+  return <ModalShell title="Offer different food dates" onClose={onClose}>
+    <p className="modal-intro">This closes {request.requesterName}’s original request and emails the open dates you select below.</p>
+    <form onSubmit={async (event) => { event.preventDefault(); if (!selected.length || sending) return; setSending(true); await onSend(selected, note); setSending(false) }}>
+      {choices.length ? <fieldset className="food-date-options"><legend>Which dates should we offer?</legend>{choices.map((event) => {
+        const date = event.date.slice(0, 8)
+        return <label className="repeat-toggle" key={date}><input type="checkbox" checked={selected.includes(date)} onChange={() => setSelected((current) => current.includes(date) ? current.filter((item) => item !== date) : [...current, date].sort())} /><span><strong>{event.dayLabel}</strong><small>{eventTimeLabel(event.time)} – {eventTimeLabel(event.endTime)}</small></span></label>
+      })}</fieldset> : <p className="field-error">There are no other open food dates right now. Close this window and update the food schedule first.</p>}
+      <label htmlFor="alternate-food-note">Optional note</label><textarea id="alternate-food-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Example: Any of these dates would be wonderful. Thank you!" />
+      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={sending}>Cancel</button><button className="primary-button" type="submit" disabled={!selected.length || sending}>{sending ? 'Sending…' : 'Email these dates'}</button></div>
+    </form>
+  </ModalShell>
+}
+
+function FoodDateSettingsModal({ settings, blockedDates, reservedDates, onClose, onSave }: { settings: FoodSettings; blockedDates: string[]; reservedDates: string[]; onClose: () => void; onSave: (dates: string[]) => Promise<void> }) {
+  const days = getThirtyDays(60)
+  const first = days[0].dateKey
+  const last = days.at(-1)?.dateKey || first
+  const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
+  const outsideView = blockedDates.filter((date) => date < first || date > last)
+  const [blocked, setBlocked] = useState(() => blockedDates.filter((date) => date >= first && date <= last))
+  const [saving, setSaving] = useState(false)
+  function toggle(date: string) {
+    if (reservedDates.includes(date)) return
+    setBlocked((current) => current.includes(date) ? current.filter((item) => item !== date) : [...current, date].sort())
+  }
+  const openCount = days.filter((day) => {
+    const weekday = new Date(`${day.dateKey.slice(0, 4)}-${day.dateKey.slice(4, 6)}-${day.dateKey.slice(6, 8)}T12:00:00`).getDay()
+    return settings.weekdays.includes(weekday) && !blocked.includes(day.dateKey)
+  }).length
+  return <ModalShell title="Manage food dates" onClose={onClose}>
+    <p className="modal-intro">Your weekly schedule creates the normal food days. Tap any offered date to close or reopen only that date.</p>
+    <form onSubmit={async (event) => { event.preventDefault(); if (saving) return; setSaving(true); await onSave([...outsideView, ...blocked].sort()); setSaving(false) }}>
+      <div className="calendar-date-picker">
+        <div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="date-picker-grid">
+          {Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`food-blank-${index}`} />)}
+          {days.map((day) => {
+            const weekday = new Date(`${day.dateKey.slice(0, 4)}-${day.dateKey.slice(4, 6)}-${day.dateKey.slice(6, 8)}T12:00:00`).getDay()
+            const scheduled = settings.weekdays.includes(weekday)
+            const reserved = reservedDates.includes(day.dateKey)
+            const open = scheduled && !blocked.includes(day.dateKey)
+            return <button type="button" key={day.dateKey} disabled={!scheduled || reserved} aria-pressed={open} aria-label={`${day.fullDay}${!scheduled ? ', not a regular food day' : reserved ? ', already requested' : open ? ', open for food drop-off' : ', closed for food drop-off'}`} onClick={() => toggle(day.dateKey)}><span>{day.monthShort}</span><strong>{day.number}</strong></button>
+          })}
+        </div>
+      </div>
+      <p className="form-note"><strong>{openCount} food dates are open in the next 60 days.</strong> Dates with an existing request cannot be changed here until that request is handled.</p>
+      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save date changes'}</button></div>
+    </form>
+  </ModalShell>
+}
+
+function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodReservedDates, foodBlockedDates, foodPreferences, stuWorkDefaults, onSaveStuWorkHours, familyInTown, familyInTownDates, onSaveFood, onSaveFoodBlockedDates, onSaveFoodPreferences, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onOpenMaryCalendar, onAddSchedule }: { careTeam: CareTeamMember[]; onEditCareMember: (member: CareTeamMember) => void; foodSettings: FoodSettings; foodReservedDates: string[]; foodBlockedDates: string[]; foodPreferences: FoodPreferences; stuWorkDefaults: StuWorkDefaults; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveFoodBlockedDates: (dates: string[]) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onOpenMaryCalendar: () => void; onAddSchedule: (person: ForWho) => void }) {
   void stuWorkDefaults
   void onSaveStuWorkHours
   void familyInTownDates
@@ -1098,6 +1189,7 @@ function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodPrefe
   const [foodDays, setFoodDays] = useState(foodSettings.weekdays)
   const [foodStart, setFoodStart] = useState(foodSettings.startTime)
   const [foodEnd, setFoodEnd] = useState(foodSettings.endTime)
+  const [managingFoodDates, setManagingFoodDates] = useState(false)
   const familyNames = ['Mary', 'Stu', 'Gabby', 'Spencer'] as const
   return <div className="family-preferences">
     <h3>Family schedules</h3><p>Open one person to view or change their schedule. Close it when you are finished.</p>
@@ -1115,7 +1207,7 @@ function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodPrefe
         {openSection === 'care' && <div className="family-accordion-panel care-team-panel"><button className="primary-button" type="button" onClick={() => onEditCareMember({ id: crypto.randomUUID(), name: '', phone: '', email: '', role: 'Helper', weekdays: [1], startTime: '09:00', endTime: '17:00', autoAssign: false })}><Users aria-hidden="true" /> Add nurse or hired help</button>{careTeam.length ? careTeam.map((member) => <button className="person-select" type="button" key={member.id} onClick={() => onEditCareMember(member)}><span><strong>{member.name}</strong><small>{member.role === 'Helper' ? 'Hired help' : member.role}</small><small>{member.weekdays.map((day) => weekdayChoices.find((choice) => choice.value === day)?.short).filter(Boolean).join(', ')} · {eventTimeLabel(member.startTime)} – {eventTimeLabel(member.endTime)}</small></span><span>Edit <ChevronRight aria-hidden="true" /></span></button>) : <p>No nurses or hired help have been added.</p>}</div>}
       </section>
     </div>
-    <div className="family-rules"><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the days and hours shown in Bring Food. Filled dates are hidden automatically.</p><fieldset className="weekday-picker"><legend>Available days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save food days</button></div></form><FoodPreferencesEditor preferences={foodPreferences} onSave={onSaveFoodPreferences} /></div>
+    <div className="family-rules"><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the days and hours shown in Bring Food. Filled dates are hidden automatically.</p><fieldset className="weekday-picker"><legend>Available days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save weekly schedule</button><button className="secondary-button" type="button" onClick={() => setManagingFoodDates(true)}><CalendarDays aria-hidden="true" /> Manage specific dates</button></div></form>{managingFoodDates && <FoodDateSettingsModal settings={{ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }} blockedDates={foodBlockedDates} reservedDates={foodReservedDates} onClose={() => setManagingFoodDates(false)} onSave={async (dates) => { if (await onSaveFoodBlockedDates(dates)) setManagingFoodDates(false) }} />}<FoodPreferencesEditor preferences={foodPreferences} onSave={onSaveFoodPreferences} /></div>
   </div>
 }
 
