@@ -657,7 +657,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         startTime: String(defaultRows[0].startTime),
         endTime: String(defaultRows[0].endTime),
       } : null
-      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates", visitor_preferences AS "visitorPreferences", food_overview AS "foodOverview", food_avoid AS "foodAvoid", food_suggestions AS "foodSuggestions" FROM food_settings WHERE singleton = TRUE`
+      const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates", visitor_preferences AS "visitorPreferences", food_overview AS "foodOverview", food_avoid AS "foodAvoid", food_suggestions AS "foodSuggestions", food_blocked_dates AS "foodBlockedDates" FROM food_settings WHERE singleton = TRUE`
       const foodSettings: FoodSettings = foodRowsSettings.length ? {
         weekdays: String(foodRowsSettings[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
         startTime: String(foodRowsSettings[0].startTime),
@@ -694,7 +694,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         events: isOrganizer ? allEvents : publicSchedule(allEvents, careTeam as ScheduleCareTeam[], familyInTown, familyInTownDates),
         visitorPreferences: signupVisitorPreferences(String(foodRowsSettings[0]?.visitorPreferences ?? defaultVisitorPreferences)),
         ...(isOrganizer ? { homeAddress: familyHomeAddress, stuWorkDefaults, visitSettings, familyInTown, familyInTownDates, careTeam, supportContacts, templates, notifications } : {}),
-        availability: publicAvailability, organizer: isOrganizer, foodSettings, foodPreferences, foodReservedDates,
+        availability: publicAvailability, organizer: isOrganizer, foodSettings, foodPreferences, foodReservedDates, foodBlockedDates: parseDates(foodRowsSettings[0]?.foodBlockedDates),
       })
     }
 
@@ -793,6 +793,40 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ id: requestId, decision, emailSent })
     }
 
+    if (action === 'offerDifferentFoodDates') {
+      if (!isOrganizer) return sendError(response, 401, 'Organizer access is required.')
+      const requestId = clean(request.body?.requestId, 80)
+      const rawDates: unknown[] = Array.isArray(request.body?.dates) ? request.body.dates : []
+      const dates = [...new Set(rawDates.map((value: unknown) => clean(value, 8)).filter((date: string) => /^\d{8}$/.test(date)))].sort().slice(0, 5)
+      const note = clean(request.body?.note, 500)
+      if (!requestId || !dates.length) return sendError(response, 400, 'Choose at least one open food date.')
+      const requests = await sql`
+        SELECT support_requests.id, support_requests.event_id AS "eventId", support_requests.requester_name AS "requesterName",
+          support_requests.requester_email AS "requesterEmail", team_events.day_label AS "dayLabel",
+          team_events.proposal_type AS "proposalType"
+        FROM support_requests JOIN team_events ON team_events.id = support_requests.event_id
+        WHERE support_requests.id = ${requestId} AND support_requests.status = 'pending'
+      `
+      if (!requests.length) return sendError(response, 409, 'This request was already handled.')
+      const supportRequest = requests[0]
+      if (String(supportRequest.proposalType) !== 'food') return sendError(response, 400, 'Different dates can only be offered for food requests.')
+      const email = String(supportRequest.requesterEmail || '').trim()
+      if (!email) return sendError(response, 400, 'This person does not have an email address saved.')
+      await sql`UPDATE support_requests SET status = 'declined', decline_reason = 'The family offered different food drop-off dates.', decided_at = NOW() WHERE id = ${requestId}`
+      await supersedeNotifications(sql, `request:${requestId}`)
+      const dateLabels = dates.map((date) => new Date(`${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric' }))
+      const name = String(supportRequest.requesterName || '').trim()
+      const emailSent = await notifyOnce(`decision:${requestId}:alternate-food-dates`, {
+        subject: "Mary's Team: different food drop-off dates are open",
+        heading: 'Could you choose a different food drop-off date?',
+        intro: `${name ? `${name}, ` : ''}thank you for offering to bring food. The family does not need food on ${String(supportRequest.dayLabel)}, but the dates below are currently open. Please return to Mary’s Team and choose whichever date works best for you.${note ? ` ${note}` : ''}`,
+        rows: dateLabels.map((label, index) => ({ label: index === 0 ? 'Open dates' : '', value: label })),
+        actionUrl: 'https://marys-team.vercel.app/?food=1',
+        actionLabel: 'Choose a different food date',
+      }, [email])
+      return response.status(200).json({ id: requestId, dates, emailSent })
+    }
+
     if (action === 'sendNotificationTest') {
       if (process.env.NOTIFICATION_MODE === 'live' && !isOrganizer) return sendError(response, 401, 'Organizer access is required to send a test email.')
       const key = `setup:test-email:v2:${process.env.NOTIFICATION_MODE || 'test'}`
@@ -876,6 +910,14 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ON CONFLICT (singleton) DO UPDATE SET weekdays = EXCLUDED.weekdays, start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, updated_at = NOW()
       `
       return response.status(200).json({ foodSettings: { weekdays, startTime, endTime } })
+    }
+
+    if (action === 'saveFoodBlockedDates') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change food drop-off dates.')
+      const rawDates: unknown[] = Array.isArray(request.body?.dates) ? request.body.dates : []
+      const dates = [...new Set(rawDates.map((value: unknown) => clean(value, 8)).filter((date: string) => /^\d{8}$/.test(date)))].sort().slice(0, 180)
+      await sql`UPDATE food_settings SET food_blocked_dates = ${dates.join(',')}, updated_at = NOW() WHERE singleton = TRUE`
+      return response.status(200).json({ foodBlockedDates: dates })
     }
 
     if (action === 'saveFoodPreferences') {
