@@ -287,6 +287,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   try {
     const sql = database()
+    await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_blocked_dates TEXT NOT NULL DEFAULT ''`
     const isOrganizer = organizerAuthorized(request)
     const privateSettings = await sql`SELECT home_address AS address FROM food_settings WHERE singleton = TRUE`
     const familyHomeAddress = String(privateSettings[0]?.address || process.env.HOME_ADDRESS || '').trim()
