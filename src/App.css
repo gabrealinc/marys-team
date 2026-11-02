@@ -254,6 +254,16 @@ h1 { font-size:clamp(2.5rem,5vw,4.6rem); line-height:1.03; letter-spacing:-.035e
 .simple-settings h3 { margin:0 0 5px; color:var(--pine-dark); }
 .simple-settings>p { margin:0 0 16px; color:var(--muted); }
 .food-preferences-editor { grid-column:1/-1; }
+.food-preference-section { margin-top:18px; padding:16px; border:1px solid var(--line); border-radius:12px; background:#fff; }
+.preference-section-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.preference-section-heading h4,.preference-section-heading p { margin:0; }
+.preference-section-heading h4 { color:var(--pine-dark); font-size:1.08rem; }
+.preference-section-heading p { margin-top:3px; color:var(--muted); font-size:.88rem; }
+.preference-rows { display:grid; gap:12px; }
+.preference-row { display:grid; grid-template-columns:minmax(180px,.7fr) minmax(260px,1.3fr) auto; align-items:end; gap:10px; padding-top:12px; border-top:1px solid var(--line); }
+.preference-row:first-child { padding-top:0; border-top:0; }
+.preference-row textarea { min-height:58px; }
+.preference-row .remove-suggestion { margin-bottom:9px; }
 .food-suggestion-list { display:grid; gap:12px; margin:18px 0; }
 .food-suggestion { margin:0; padding:15px; border:1px solid var(--line); border-radius:11px; background:#fff; }
 .food-suggestion legend { padding:0 6px; color:var(--pine-dark); font-weight:850; }
@@ -597,6 +607,10 @@ button, input, select { min-height: 44px; }
 .care-team-panel .primary-button { width:max-content; }
 .care-team-panel .person-select { width:100%; }
 @media(max-width:600px) {
+  .preference-section-heading { align-items:stretch; flex-direction:column; }
+  .preference-section-heading .secondary-button { width:100%; }
+  .preference-row { grid-template-columns:1fr; }
+  .preference-row .remove-suggestion { justify-self:start; margin:0; }
   .family-accordion-toggle { min-height:62px; padding:12px 14px; }
   .family-accordion-panel { align-items:stretch; padding:12px; }
   .family-accordion-panel .primary-button,.family-accordion-panel .secondary-button { width:100%; }
