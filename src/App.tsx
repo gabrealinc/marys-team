@@ -320,8 +320,12 @@ function App() {
   })
   const supportFeedEvents = [...calculatedHelpNeeded.flatMap((event) => applyNurseCoverage(event, careTeam)), ...foodNeeds]
   const helpFeedEvents = supportFeedEvents.filter((event) => !event.helper && !event.requestPending)
+  const publicHelpFeedEvents = [
+    ...helpFeedEvents.filter((event) => event.publicAction !== 'food'),
+    ...helpFeedEvents.filter((event) => event.publicAction === 'food').slice(0, 6),
+  ]
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
-  const visibleEvents = (view === 'help' ? helpFeedEvents : teamEvents)
+  const visibleEvents = (view === 'help' ? publicHelpFeedEvents : teamEvents)
     .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))))
     .sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
   const helpers = Object.fromEntries(teamEvents.filter((event) => event.helper).map((event) => [event.id, event.helper as string]))
@@ -1287,14 +1291,14 @@ function FoodSignupModal({ initialWindow, visitorPreferences, events, foodSettin
   const [acknowledged, setAcknowledged] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const days = getThirtyDays().map((day) => {
+  const days = getThirtyDays(60).map((day) => {
     const iso = `${day.dateKey.slice(0, 4)}-${day.dateKey.slice(4, 6)}-${day.dateKey.slice(6, 8)}`
     const slots = foodTimeSlots(day.dateKey, foodSettings, foodReservedDates, events)
     return { ...day, iso, slots }
   }).filter((day) => day.slots.length)
   const selected = days.find((day) => day.iso === selectedDate)
   const valid = Boolean(selected?.slots.includes(time))
-  if (!selectedDate) return <ModalShell title="Choose an open food drop-off date" onClose={onClose}><p className="modal-intro">Only available dates are shown. Choose a day, then see food preferences and tell us what you’ll bring. One food drop-off per day.</p><div className="food-open-dates">{days.map((day) => <button className="food-open-date" type="button" key={day.dateKey} onClick={() => { setSelectedDate(day.iso); setTime(day.slots[0]) }}><span><strong>{day.fullDay}</strong><small>{day.slots.map(eventTimeLabel).join(' · ')}</small></span><span>Choose day <ChevronRight aria-hidden="true" /></span></button>)}</div>{!days.length && <div className="organizer-empty"><p><strong>There are no open food drop-off dates in the next 30 days.</strong><br />Please check back here. No need to contact the family to arrange another time.</p></div>}<p className="form-note">Food drop-offs are brief and do not include a social visit. Confirmation, changes, and cancellations are communicated by email. The family will email confirmation and instructions after reviewing your request.</p></ModalShell>
+  if (!selectedDate) return <ModalShell title="Choose an open food drop-off date" onClose={onClose}><p className="modal-intro">Only available dates in the next 60 days are shown. Choose a day, then see food preferences and tell us what you’ll bring. One food drop-off per day.</p><div className="food-open-dates">{days.map((day) => <button className="food-open-date" type="button" key={day.dateKey} onClick={() => { setSelectedDate(day.iso); setTime(day.slots[0]) }}><span><strong>{day.fullDay}</strong><small>{day.slots.map(eventTimeLabel).join(' · ')}</small></span><span>Choose day <ChevronRight aria-hidden="true" /></span></button>)}</div>{!days.length && <div className="organizer-empty"><p><strong>There are no open food drop-off dates in the next 60 days.</strong><br />Please check back here. No need to contact the family to arrange another time.</p></div>}<p className="form-note">Food drop-offs are brief and do not include a social visit. Confirmation, changes, and cancellations are communicated by email. The family will email confirmation and instructions after reviewing your request.</p></ModalShell>
   return <ModalShell title="Plan your food drop-off" onClose={onClose}><div className="modal-summary"><strong>{selected?.fullDay || selectedDate}</strong><button className="text-button" type="button" onClick={() => setSelectedDate('')}>Change date</button></div><FoodPreferencesCard preferences={foodPreferences} /><VisitorNotice text={visitorPreferences} /><form onSubmit={async (event) => {
     event.preventDefault(); if (saving || !valid || !acknowledged) return
     setSaving(true); setError('')
