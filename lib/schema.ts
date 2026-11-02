@@ -4,6 +4,23 @@ import { installWriteTriggers } from './write-triggers.js'
 const defaultEventDetails = 'Please sign up through this website and wait for confirmation. No social visits or drop-ins. Thank you for respecting any schedule changes.'
 export async function migrate(sql: NeonQueryFunction<false, false>) {
   await sql`CREATE TABLE IF NOT EXISTS app_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
+  await sql`
+    CREATE TABLE IF NOT EXISTS visitor_stays (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      start_date TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `
+  await sql`CREATE INDEX IF NOT EXISTS visitor_stays_dates ON visitor_stays(start_date, end_date)`
+  await sql`CREATE INDEX IF NOT EXISTS visitor_stays_person ON visitor_stays(person_id)`
   if ((await sql`SELECT version FROM app_migrations WHERE version = '20261018-priorities-v1'`).length) return
   await sql`
     CREATE TABLE IF NOT EXISTS team_events (
