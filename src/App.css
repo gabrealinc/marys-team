@@ -614,6 +614,14 @@ button, input, select { min-height: 44px; }
 .family-calendar-tabs button.active { background:#fff; box-shadow:0 2px 7px rgba(31,72,52,.12); }
 .regular-hours-summary { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:14px; padding:14px; border:1px solid var(--line); border-radius:12px; background:#f7faf6; }
 .regular-hours-summary p { margin:4px 0 0; color:var(--muted); font-size:.88rem; line-height:1.4; }
+.town-status-panel { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:12px 18px; margin-bottom:12px; padding:14px; border:1px solid var(--line); border-radius:12px; background:#fff; }
+.town-status-panel p { margin:4px 0 0; color:var(--muted); font-size:.88rem; line-height:1.4; }
+.town-status-panel .secondary-button { grid-column:1 / -1; justify-self:start; }
+.town-status-check { display:flex; align-items:center; gap:9px; margin:0; font-weight:750; white-space:nowrap; }
+.town-status-check input { width:22px; min-height:22px; height:22px; margin:0; }
+.family-calendar-picker .date-picker-grid small.town-day-in,.family-calendar-picker .date-picker-grid small.town-day-out { font-size:.55rem; font-weight:850; letter-spacing:.03em; }
+.family-calendar-picker .date-picker-grid small.town-day-in { color:var(--pine); }
+.family-calendar-picker .date-picker-grid small.town-day-out { color:#8a6b62; }
 .food-settings-panel,.food-settings-panel .family-rules { display:block; width:100%; }
 .food-settings-panel .simple-settings { margin-top:0; }
 .settings-disclosure { margin-top:16px; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:#fff; }
@@ -634,6 +642,9 @@ button, input, select { min-height: 44px; }
   .family-calendar-tabs button { flex:0 0 auto; min-width:82px; scroll-snap-align:start; }
   .regular-hours-summary { align-items:stretch; flex-direction:column; }
   .regular-hours-summary .secondary-button { width:100%; }
+  .town-status-panel { grid-template-columns:1fr; }
+  .town-status-panel .secondary-button { width:100%; }
+  .town-status-check { white-space:normal; }
   .settings-disclosure summary { min-height:62px; padding:12px 14px; }
   .settings-disclosure .simple-settings { padding:14px; }
 }
