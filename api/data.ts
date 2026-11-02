@@ -1455,7 +1455,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
           INSERT INTO food_reservations (food_date, event_id) VALUES (${date.replaceAll('-', '')}, ${eventId}) ON CONFLICT DO NOTHING RETURNING event_id
         ), inserted_event AS (
           INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, help_needed, for_who, is_proposed, proposal_type)
-          SELECT ${eventId}, 'company', ${eventDate}, ${dayLabel}, ${time}, ${endTime}, ${title}, ${details}, 'No help needed', 'Mary', TRUE, ${type} FROM reserved
+          SELECT ${eventId}, 'company', ${eventDate}, ${dayLabel}, ${time}, ${endTime}, ${title}, ${details}, 'No help needed', 'Family', TRUE, ${type} FROM reserved
           RETURNING id
         )
         INSERT INTO support_requests (id, event_id, requester_name, requester_phone, requester_email, approval_token)
