@@ -33,7 +33,7 @@ const availabilityTimes = [
 ]
 
 const helpChoices = ['Driving or giving a ride', 'Practical care and household support', 'Home projects or errands', 'Bringing a meal', 'Pet care or errands', 'Anything that would be useful']
-const alsWalkUrl = 'https://secure.alsaz.org/site/TR/Endurance/General?pg=team&team_id=4912&fr_id=1200'
+const goFundMeUrl = 'https://www.gofundme.com/f/support-mary-greenberg?cp_src=d'
 const supportChoices = ['Need a ride', 'Spend time with Mary', 'Support at home or with an errand', 'Help with Coco', 'No help needed']
 const maryAppointmentChoices = ['At Home Appointment', 'Appointment']
 const defaultEventDetails = 'Please sign up through this website and wait for confirmation. No social visits or drop-ins. Thank you for respecting any schedule changes.'
@@ -205,7 +205,7 @@ function buildPublicScheduleEvents(events: TeamEvent[], helpNeededEvents: TeamEv
   return simplifyCoveredSchedule([
     ...marySupport,
     ...events.filter((event) => event.proposalType === 'food' && event.helper),
-    ...events.filter((event) => event.helpNeeded === 'Group event' || event.scheduleSource === 'nurse_coverage'),
+    ...events.filter((event) => event.scheduleSource === 'nurse_coverage'),
     ...events.filter((event) => event.helpNeeded !== 'Group event' && event.scheduleSource !== 'nurse_coverage' && event.forWho === 'Mary' && !event.proposalType && isNoSupport(event.helpNeeded) && !event.isFlexible),
   ])
 }
@@ -305,6 +305,7 @@ function App() {
   const [supportContacts, setSupportContacts] = useState<SupportContact[]>([])
   const [showSupportContact, setShowSupportContact] = useState(false)
   const [showAvailabilityThanks, setShowAvailabilityThanks] = useState(false)
+  const [showSupportThanks, setShowSupportThanks] = useState(false)
   const [foodConfirmation, setFoodConfirmation] = useState<{ name: string; email: string; date: string; time: string } | null>(null)
   const [addContact, setAddContact] = useState<DriverContact | undefined>(undefined)
   const [visitorPreferences, setVisitorPreferences] = useState(defaultVisitorPreferences)
@@ -591,6 +592,7 @@ function App() {
       const result = await apiRequest({ action: 'claimEvent', eventId, name, phone, email, startTime, endTime, note })
       setTeamEvents((events) => events.map((event) => event.id === eventId ? result.status === 'requested' ? { ...event, requestPending: true, requesterName: name } : { ...event, helper: name, requestPending: false, requesterName: undefined } : event))
       setSignupEvent(null)
+      setShowSupportThanks(true)
       setMessage(result.status === 'requested' ? `Thank you, ${name}. Your request was submitted.` : `Thank you, ${name}. You are confirmed.`)
       window.setTimeout(() => setMessage(''), 5000)
       return true
@@ -608,6 +610,7 @@ function App() {
       setPlanRequestWindow(null)
       setMessage(`Thank you, ${plan.name}. Your request was submitted.`)
       if (plan.type === 'food') setFoodConfirmation(plan)
+      else setShowSupportThanks(true)
       await refreshData()
       window.setTimeout(() => setMessage(''), 6000)
       return true
@@ -722,6 +725,7 @@ function App() {
       const result = await apiRequest({ action: 'addSupportContact', ...contact })
       setSupportContacts((items) => [result.contact, ...items.filter((item) => item.id !== result.contact.id)])
       setShowSupportContact(false)
+      setShowSupportThanks(true)
       setMessage('Thank you. Your contact information was added.')
       return true
     } catch (error) {
@@ -792,7 +796,6 @@ function App() {
         <div className="header-tools"><button className="family-access-button" type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /><span>Edit &amp; Approve</span>{organizer && pendingRequests.length > 0 && <strong aria-label={`${pendingRequests.length} requests waiting`}>{pendingRequests.length}</strong>}</button><button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> <span>How to use this page</span></button></div>
       </header>
       <main id="top">
-        {teamEvents.filter((event) => event.helpNeeded === 'Group event' && event.date.slice(0, 8) >= localDateInputValue().replaceAll('-', '')).map((event) => <section className="group-event-banner" key={event.id} aria-label="Community group event"><div><p className="eyebrow">Group event · Everyone is welcome</p><h2>{event.title}</h2><p>{event.dayLabel} · {eventTimeRangeLabel(event)}</p>{event.location && <p>{event.location}</p>}<p>Come walk with Mary’s Team. Register on the official ALS team page to join us.</p></div><a className="primary-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Sign up for the ALS walk</a></section>)}
         <section className="welcome" aria-labelledby="page-title">
           <div><p className="eyebrow">Family schedule and support</p><h1 id="page-title">The Greenbergs’ Schedule</h1><p className="intro">See what’s coming up and sign up where support is needed.</p></div>
           <div className="quick-actions" role="group" aria-label="Page actions">
@@ -853,8 +856,9 @@ function App() {
       {inTownDatesPerson && <FamilyInTownDatesModal person={inTownDatesPerson} selectedDates={familyInTownDates[inTownDatesPerson]} onClose={() => setInTownDatesPerson(null)} onSave={(dates) => saveFamilyInTownDates(inTownDatesPerson, dates)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showSupportContact && <SupportContactModal visitorPreferences={visitorPreferences} onClose={() => setShowSupportContact(false)} onSave={saveSupportContact} />}
-      {foodConfirmation && <ModalShell title="Your food drop-off request is submitted" onClose={() => setFoodConfirmation(null)}><p>Thank you, {foodConfirmation.name}. You requested {dayLabelForDate(foodConfirmation.date)} at {eventTimeLabel(foodConfirmation.time)}.</p><p><strong>Please wait for confirmation before coming.</strong> We’ll email {foodConfirmation.email} after the family reviews your request, with the address and drop-off instructions. There is no need to text for confirmation or an address.</p><p>Food drop-offs do not include a visit. Please respect any changes or cancellations.</p><button className="primary-button" type="button" onClick={() => setFoodConfirmation(null)}>Done</button></ModalShell>}
+      {foodConfirmation && <ModalShell title="Your food drop-off request is submitted" onClose={() => setFoodConfirmation(null)}><p>Thank you, {foodConfirmation.name}. You requested {dayLabelForDate(foodConfirmation.date)} at {eventTimeLabel(foodConfirmation.time)}.</p><p><strong>Please wait for confirmation before coming.</strong> We’ll email {foodConfirmation.email} after the family reviews your request, with the address and drop-off instructions. There is no need to text for confirmation or an address.</p><p>Food drop-offs do not include a visit. Please respect any changes or cancellations.</p><GoFundMeHelp /><button className="text-button full-button" type="button" onClick={() => setFoodConfirmation(null)}>Done</button></ModalShell>}
       {showAvailabilityThanks && <AvailabilityThanksModal onClose={() => setShowAvailabilityThanks(false)} />}
+      {showSupportThanks && <SupportThanksModal onClose={() => setShowSupportThanks(false)} />}
       {approvalRequest && <ApprovalModal request={approvalRequest} onClose={() => setApprovalRequest(null)} onDecide={decideApprovalRequest} />}
       {showOrganizerLogin && <OrganizerLoginModal onClose={() => setShowOrganizerLogin(false)} onLogin={organizerLogin} />}
     </div>
@@ -878,7 +882,7 @@ function getThirtyDays(count = 30) {
 }
 
 function EmptySchedule({ onAdd, onJoin, onAlreadySignedUp, supportOnly = false }: { onAdd: () => void; onJoin?: () => void; onAlreadySignedUp?: () => void; supportOnly?: boolean }) {
-  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No help is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'Everything is covered. Add your contact information so the family knows you are open to helping if something comes up. We greatly appreciate it.' : 'Mary or Stu can add the first appointment or task.'}</p>{supportOnly && <div className="empty-state-actions">{onJoin && <button className="primary-button" type="button" onClick={onJoin}>Let us know you are open to helping</button>}{onAlreadySignedUp && <button className="secondary-button" type="button" onClick={onAlreadySignedUp}>Already signed up</button>}</div>}{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
+  return <div className="empty-state"><CalendarDays aria-hidden="true" /><h3>{supportOnly ? 'No help is needed right now' : 'Nothing has been added yet'}</h3><p>{supportOnly ? 'Everything is covered. Add your contact information so the family knows you are open to helping if something comes up. We greatly appreciate it.' : 'Mary or Stu can add the first appointment or task.'}</p>{supportOnly && <><div className="empty-state-actions">{onJoin && <button className="primary-button" type="button" onClick={onJoin}>Let us know you are open to helping</button>}{onAlreadySignedUp && <button className="secondary-button" type="button" onClick={onAlreadySignedUp}>Already signed up</button>}</div><GoFundMeHelp /></>}{!supportOnly && <button className="primary-button" type="button" onClick={onAdd}>+ Add the first item</button>}</div>
 }
 
 function UpcomingDaysList({ events, daysToShow, onOpen }: { events: TeamEvent[]; daysToShow: number; onOpen: (event: TeamEvent) => void }) {
@@ -1027,18 +1031,24 @@ function SupportContactModal({ visitorPreferences, onClose, onSave }: { visitorP
 function AvailabilityThanksModal({ onClose }: { onClose: () => void }) {
   return <ModalShell title="Thank you for sharing your availability" onClose={onClose}>
     <p className="modal-intro">Your availability has been saved. This is an offer, not a confirmed commitment. The family will email you if they schedule specific help.</p>
-    <p>Please join us at the ALS walk.</p>
-    <a className="primary-button full-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Join us at the ALS walk</a>
-    <p className="form-note">Also, feel free to share <a href="https://www.gofundme.com/f/support-mary-greenberg" target="_blank" rel="noreferrer">this link</a>.</p>
+    <GoFundMeHelp />
     <button className="text-button full-button" type="button" onClick={onClose}>Done</button>
   </ModalShell>
+}
+
+function GoFundMeHelp() {
+  return <div className="alternative-help"><strong>Alternative help</strong><p>If no schedule opening works for you, supporting or sharing Mary’s GoFundMe is another meaningful way to help.</p><a className="secondary-button full-button" href={goFundMeUrl} target="_blank" rel="noreferrer">Open Mary’s GoFundMe</a></div>
+}
+
+function SupportThanksModal({ onClose }: { onClose: () => void }) {
+  return <ModalShell title="Thank you for supporting Mary’s Team" onClose={onClose}><p className="modal-intro">Your information was submitted. Please wait for an email confirmation before coming to the home.</p><GoFundMeHelp /><button className="text-button full-button" type="button" onClick={onClose}>Done</button></ModalShell>
 }
 
 function EventDetailsModal({ onSignUp, event, organizer, availability, onClose, onEdit, onAssign }: { onSignUp: () => void; event: TeamEvent; organizer: boolean; availability: Availability[]; onClose: () => void; onEdit: () => void; onAssign: () => void }) {
   return <ModalShell title={eventDisplayTitle(event, organizer)} onClose={onClose}>
     <div className="event-detail-summary">
       <div><small>When</small><strong>{event.dayLabel}<br />{eventTimeRangeLabel(event)}</strong></div>
-      {event.scheduleSource !== 'nurse_coverage' && <div><small>{event.helper ? 'Confirmed' : event.helpNeeded === 'Group event' ? 'Open to everyone' : event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.helper ? event.helper : event.helpNeeded === 'Group event' ? 'Join Mary’s Team at the ALS walk' : event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Unavailable' : event.helpNeeded}</strong></div>}
+      {event.scheduleSource !== 'nurse_coverage' && <div><small>{event.helper ? 'Confirmed' : event.helpNeeded === 'Group event' ? 'Group event' : event.proposalType ? 'Plan' : isNoSupport(event.helpNeeded) ? 'Status' : 'Support requested'}</small><strong>{event.helper ? event.helper : event.helpNeeded === 'Group event' ? 'Group event' : event.proposalType ? event.proposalType === 'food' ? 'Food drop-off' : 'Stopping by' : isNoSupport(event.helpNeeded) ? 'Unavailable' : event.helpNeeded}</strong></div>}
       {organizer && shouldShowEventLocation(event) && <div><small>Where</small><strong>{event.location}</strong></div>}
       {(organizer || event.scheduleSource === 'nurse_coverage' || !isPrivateAppointment(event)) && <div><small>Details</small><p>{eventDisplayDetails(event, organizer)}</p></div>}
       {event.helper && event.scheduleSource !== 'nurse_coverage' && <div><small>Confirmed</small><strong>{event.helper}</strong>{(event.helperEmail || event.helperPhone) && <span className="compact-contact">{event.helperEmail && <a href={`mailto:${event.helperEmail}`}>{event.helperEmail}</a>}{event.helperPhone && <a href={`tel:${event.helperPhone}`}>{event.helperPhone}</a>}</span>}</div>}
@@ -1047,7 +1057,6 @@ function EventDetailsModal({ onSignUp, event, organizer, availability, onClose, 
     </div>
     {event.isCalculatedCoverage && organizer && <p className="form-note">This time is calculated from the family schedules. Edit the individual family members’ work or away entries to change it.</p>}
     {!isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending && !organizer && <button className="primary-button full-button" type="button" onClick={onSignUp}>{event.publicAction === 'food' ? 'Choose this food drop-off date' : 'Sign up for this practical task'}</button>}
-    {event.helpNeeded === 'Group event' && <><p className="form-note">Everyone is welcome. Sign up on the official ALS team page to let the team know you are going.</p><a className="primary-button full-button" href={alsWalkUrl} target="_blank" rel="noreferrer">Join the ALS walk</a></>}
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Close</button>{organizer && event.isCalculatedCoverage && !event.helper && <button className="primary-button" type="button" onClick={onAssign}><Users aria-hidden="true" /> Assign someone</button>}{organizer && !event.isCalculatedCoverage && event.scheduleSource !== 'nurse_coverage' && <button className="primary-button" type="button" onClick={onEdit}><Pencil aria-hidden="true" /> Edit</button>}</div>
   </ModalShell>
 }
@@ -1813,7 +1822,7 @@ function ApprovalModal({ request, onClose, onDecide }: { request: ApprovalReques
 }
 
 function HelpModal({ onClose }: { onClose: () => void }) {
-  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Help Needed.</strong> Choose a specific practical task you can provide. Appointment helpers must stay throughout and provide hands-on support. Social visits are not available.</p></div><div><span>2</span><p><strong>Bring Food.</strong> Choose an open date first, then a drop-off time. Read food preferences, tell us what you’re bringing, and enter your contact details.</p></div><div><span>3</span><p><strong>Wait for confirmation.</strong> Watch for an email with approval and instructions. Please do not come without confirmation or after a cancellation. Food drop-offs do not include a visit.</p></div></div><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
+  return <ModalShell title="How to use Mary’s Team" onClose={onClose}><div className="help-list"><div><span>1</span><p><strong>Help Needed.</strong> Choose a specific practical task you can provide. Appointment helpers must stay throughout and provide hands-on support. Social visits are not available.</p></div><div><span>2</span><p><strong>Bring Food.</strong> Choose an open date first, then a drop-off time. Read food preferences, tell us what you’re bringing, and enter your contact details.</p></div><div><span>3</span><p><strong>Wait for confirmation.</strong> Watch for an email with approval and instructions. Please do not come without confirmation or after a cancellation. Food drop-offs do not include a visit.</p></div></div><GoFundMeHelp /><button className="primary-button full-button" type="button" onClick={onClose}>Got it</button></ModalShell>
 }
 
 export default App
