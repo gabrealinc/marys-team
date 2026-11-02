@@ -625,6 +625,10 @@ button, input, select { min-height: 44px; }
 .settings-disclosure summary svg { width:22px; flex:0 0 22px; transition:transform .18s ease; }
 .settings-disclosure[open] summary svg { transform:rotate(90deg); }
 .settings-disclosure .simple-settings { margin:0; padding:18px; border:0; border-top:1px solid var(--line); border-radius:0; }
+.alternative-help { margin:20px 0; padding:18px; border:1px solid #c9d9cc; border-radius:12px; background:#f3f8f2; }
+.alternative-help strong { display:block; color:var(--pine-dark); font-size:1.05rem; }
+.alternative-help p { margin:6px 0 14px; color:var(--muted); line-height:1.5; }
+.alternative-help .secondary-button { margin:0; }
 @media(max-width:600px) {
   .family-calendar-tabs { display:flex; overflow-x:auto; scroll-snap-type:x proximity; }
   .family-calendar-tabs button { flex:0 0 auto; min-width:82px; scroll-snap-align:start; }
