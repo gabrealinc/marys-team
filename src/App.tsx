@@ -137,6 +137,7 @@ function eventPublicStatus(event: TeamEvent) {
   }
   if (event.scheduleSource === 'nurse_coverage') return 'Unavailable'
   if (event.helpNeeded === 'Group event') return 'Group event · Everyone is welcome'
+  if (event.publicAction === 'food' && !event.helper && !event.requestPending) return 'Food drop-off available'
   if (event.publicAction === 'stop_by') return 'Choose a time to stop by'
   if (event.proposalType === 'food') return event.requesterName ? `Food requested by ${event.requesterName}` : 'Food drop-off requested'
   if (event.proposalType === 'stop_by') return event.requesterName ? `Stop by requested by ${event.requesterName}` : 'Stop-by request submitted'
@@ -326,6 +327,7 @@ function App() {
     ...helpFeedEvents.filter((event) => event.publicAction === 'food').slice(0, 6),
   ]
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
+  const monthScheduleEvents = [...publicScheduleEvents, ...helpFeedEvents].filter((event, index, items) => items.findIndex((item) => item.id === event.id && item.date === event.date && item.time === event.time && item.endTime === event.endTime) === index)
   const visibleEvents = (view === 'help' ? publicHelpFeedEvents : teamEvents)
     .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))))
     .sort((a, b) => a.date.localeCompare(b.date) || a.endTime.localeCompare(b.endTime))
@@ -821,7 +823,7 @@ function App() {
                 </div>
               </article>
             }) : <EmptySchedule onAdd={() => organizer ? (setAddForWho('Mary'), setShowAdd(true)) : setShowOrganizerLogin(true)} onJoin={() => setShowSupportContact(true)} onAlreadySignedUp={() => setView('month')} supportOnly />}
-          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={openScheduleEvent} /></div> : <MonthCalendar events={publicScheduleEvents} onOpen={openScheduleEvent} />)}
+          </div> : view === 'upcoming' ? <div className="upcoming-calendar-wrap"><UpcomingDaysList events={publicScheduleEvents} daysToShow={10} onOpen={openScheduleEvent} /></div> : <MonthCalendar events={monthScheduleEvents} onOpen={openScheduleEvent} />)}
         </section>
         {(organizer || availability.some((entry) => entry.editable)) && <section className="availability-section" aria-labelledby="availability-title">
           <div className="section-heading compact"><div><p className="eyebrow">Friends and family</p><h2 id="availability-title">{organizer ? 'Availability offers' : 'Your availability offers'}</h2></div><button className="secondary-button" type="button" onClick={() => setShowAvailability(true)}><Clock3 aria-hidden="true" /> Add your availability</button></div>
@@ -950,12 +952,14 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
       <div className="month-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="month-grid">{days.map((day) => {
         const label = day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-        const openHelp = day.events.some((event) => !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending)
+        const openFood = day.events.some((event) => event.publicAction === 'food' && !event.helper && !event.requestPending)
+        const openRide = day.events.some((event) => event.publicAction !== 'food' && event.helpNeeded.toLowerCase().includes('ride') && !event.helper && !event.requestPending)
+        const openHelp = day.events.some((event) => event.publicAction !== 'food' && !event.helpNeeded.toLowerCase().includes('ride') && !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending)
         const busyCount = day.events.filter((event) => !event.proposalType && !event.publicAction && isNoSupport(event.helpNeeded)).length
         const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
         return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.isPast ? 'past-day' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no schedule items'}`}>
           <span className="month-number">{day.date.getDate()}</span>
-          <span className="month-statuses">{openHelp && <span className="month-status help">Help Needed</span>}{busyCount > 0 && <span className="month-status appointment">{busyCount} {busyCount === 1 ? 'Appointment' : 'Appointments'}</span>}{foodCovered && <span className="month-status food">Food Covered</span>}</span>
+          <span className="month-statuses">{openRide && <span className="month-status help">Ride Needed</span>}{openHelp && <span className="month-status help">Help Needed</span>}{openFood && <span className="month-status help">Food Drop-off Available</span>}{busyCount > 0 && <span className="month-status appointment">{busyCount} {busyCount === 1 ? 'Appointment' : 'Appointments'}</span>}{foodCovered && <span className="month-status food">Food Covered</span>}</span>
         </button>
       })}</div>
     </div>
