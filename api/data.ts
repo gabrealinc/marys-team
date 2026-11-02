@@ -48,6 +48,7 @@ type StuWorkDefaults = {
   startTime: string
   endTime: string
 }
+type WeeklyWorkHour = { weekday: number; startTime: string; endTime: string }
 
 type FoodSettings = { weekdays: number[]; startTime: string; endTime: string }
 type FoodPreferenceType = 'restaurant' | 'homemade' | 'grocery'
@@ -658,6 +659,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         startTime: String(defaultRows[0].startTime),
         endTime: String(defaultRows[0].endTime),
       } : null
+      const stuWeeklyHours = isOrganizer ? await sql`SELECT weekday, start_time AS "startTime", end_time AS "endTime" FROM family_weekly_hours WHERE person = 'Stu' ORDER BY weekday` as WeeklyWorkHour[] : []
       const foodRowsSettings = await sql`SELECT weekdays, start_time AS "startTime", end_time AS "endTime", visit_start_time AS "visitStartTime", visit_end_time AS "visitEndTime", stu_in_town AS "stuInTown", gabby_in_town AS "gabbyInTown", spencer_in_town AS "spencerInTown", stu_in_town_dates AS "stuInTownDates", gabby_in_town_dates AS "gabbyInTownDates", spencer_in_town_dates AS "spencerInTownDates", visitor_preferences AS "visitorPreferences", food_overview AS "foodOverview", food_avoid AS "foodAvoid", food_suggestions AS "foodSuggestions", food_blocked_dates AS "foodBlockedDates" FROM food_settings WHERE singleton = TRUE`
       const foodSettings: FoodSettings = foodRowsSettings.length ? {
         weekdays: String(foodRowsSettings[0].weekdays).split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
@@ -697,7 +699,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({
         events: isOrganizer ? allEvents : publicSchedule(allEvents, careTeam as ScheduleCareTeam[], familyInTown, familyInTownDates, visitorStays),
         visitorPreferences: signupVisitorPreferences(String(foodRowsSettings[0]?.visitorPreferences ?? defaultVisitorPreferences)),
-        ...(isOrganizer ? { homeAddress: familyHomeAddress, stuWorkDefaults, visitSettings, familyInTown, familyInTownDates, careTeam, supportContacts, visitorStays, templates, notifications } : {}),
+        ...(isOrganizer ? { homeAddress: familyHomeAddress, stuWorkDefaults, stuWeeklyHours, visitSettings, familyInTown, familyInTownDates, careTeam, supportContacts, visitorStays, templates, notifications } : {}),
         availability: publicAvailability, organizer: isOrganizer, foodSettings, foodPreferences, foodReservedDates, foodBlockedDates: isOrganizer ? parseDates(foodRowsSettings[0]?.foodBlockedDates) : [...new Set([...parseDates(foodRowsSettings[0]?.foodBlockedDates), ...visitorBlockedDates])],
       })
     }
@@ -899,6 +901,36 @@ export default async function handler(request: VercelRequest, response: VercelRe
         `
       }))
       return response.status(200).json({ defaults })
+    }
+
+    if (action === 'saveStuWeeklyHours') {
+      if (!isOrganizer) return sendError(response, 401, 'Family PIN access is required to change Stu’s work hours.')
+      const rawHours: unknown[] = Array.isArray(request.body?.hours) ? request.body.hours : []
+      const hours: WeeklyWorkHour[] = rawHours.map((item) => {
+        const value = item && typeof item === 'object' ? item as Record<string, unknown> : {}
+        return { weekday: Number(value.weekday), startTime: clean(value.startTime, 5), endTime: clean(value.endTime, 5) }
+      }).filter((item) => Number.isInteger(item.weekday) && item.weekday >= 0 && item.weekday <= 6 && /^\d{2}:\d{2}$/.test(item.startTime) && /^\d{2}:\d{2}$/.test(item.endTime) && item.endTime > item.startTime)
+      if (hours.length !== rawHours.length || new Set(hours.map((item) => item.weekday)).size !== hours.length) return sendError(response, 400, 'Check each selected weekday and its work hours.')
+      await sql`DELETE FROM family_weekly_hours WHERE person = 'Stu'`
+      for (const hour of hours) await sql`INSERT INTO family_weekly_hours (person, weekday, start_time, end_time, updated_at) VALUES ('Stu', ${hour.weekday}, ${hour.startTime}, ${hour.endTime}, NOW())`
+      const exceptions = new Set((await sql`SELECT work_date AS "workDate" FROM stu_work_exceptions`).map((row) => String(row.workDate)))
+      const byWeekday = new Map(hours.map((hour) => [hour.weekday, hour]))
+      for (const { dateKey, weekday, dayLabel } of upcomingWorkDates()) {
+        if (exceptions.has(dateKey)) continue
+        const id = `stu-work-${dateKey}`
+        const hour = byWeekday.get(weekday)
+        if (!hour) {
+          await sql`DELETE FROM team_events WHERE id = ${id} AND is_schedule_exception = FALSE`
+          continue
+        }
+        const eventDate = `${dateKey}T${hour.startTime.replace(':', '')}00`
+        await sql`
+          INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, help_needed, for_who, schedule_source, is_schedule_exception)
+          VALUES (${id}, 'family', ${eventDate}, ${dayLabel}, ${hour.startTime}, ${hour.endTime}, 'Stu at Work', 'Stu is working.', 'Spend time with Mary', 'Stu', 'stu_work', FALSE)
+          ON CONFLICT (id) DO UPDATE SET event_date = EXCLUDED.event_date, day_label = EXCLUDED.day_label, event_time = EXCLUDED.event_time, end_time = EXCLUDED.end_time, title = EXCLUDED.title, details = EXCLUDED.details, help_needed = EXCLUDED.help_needed, for_who = EXCLUDED.for_who, schedule_source = EXCLUDED.schedule_source WHERE team_events.is_schedule_exception = FALSE
+        `
+      }
+      return response.status(200).json({ hours })
     }
 
     if (action === 'saveFoodSettings') {
