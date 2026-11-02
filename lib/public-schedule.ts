@@ -25,7 +25,7 @@ export function publicSchedule(events: TeamEvent[], careTeam: CareTeamMember[], 
       const first = String(event.helper || 'Nurse').trim().split(/\s+/)[0]
       output.push({ id: `nurse-public-${index}`, ...timing(event), category: 'appointment', forWho: 'Mary', title: careCoverageTitle(first), details: /^eri[ck]a$/i.test(first) ? 'Gabby and Stu at work' : 'Care is covered during this time.', helpNeeded: 'No help needed', helper: first, scheduleSource: 'nurse_coverage' })
     }
-    else if (event.proposalType === 'food' && event.helper) output.push({ id: event.id, ...timing(event), category: 'company', forWho: 'Mary', title: 'Food drop-off', details: 'This food slot is covered.', helpNeeded: 'No help needed', helper: helper(event), proposalType: 'food' })
+    else if (event.proposalType === 'food' && event.helper) output.push({ id: event.id, ...timing(event), category: 'company', forWho: 'Family', title: 'Food drop-off', details: 'This food slot is covered.', helpNeeded: 'No help needed', helper: helper(event), proposalType: 'food' })
     else if (event.forWho === 'Mary' && !event.proposalType && !event.isFlexible && ['No help needed', 'No help needed, just sharing the schedule'].includes(event.helpNeeded)) output.push({ id: `busy-public-${index}`, ...timing(event), category: 'appointment', forWho: 'Mary', title: 'Mary is too sick to see anyone', details: 'No help is requested during this time.', helpNeeded: 'No help needed' })
   })
   return simplifyCoveredSchedule(output)
