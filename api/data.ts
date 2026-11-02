@@ -1161,7 +1161,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!isOrganizer) return sendError(response, 401, 'Family access is required to add a visit.')
       const stay = request.body?.stay || {}
       const id = clean(stay.id, 100) || randomUUID()
-      const personId = clean(stay.personId, 100)
+      const requestedPersonId = clean(stay.personId, 100)
       const name = clean(stay.name, 120)
       const phone = clean(stay.phone, 40)
       const email = clean(stay.email, 200).toLocaleLowerCase()
@@ -1169,9 +1169,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const startTime = clean(stay.startTime, 5)
       const endDate = clean(stay.endDate, 8)
       const endTime = clean(stay.endTime, 5)
-      if (!personId || !name || !/^\d{8}$/.test(startDate) || !/^\d{8}$/.test(endDate) || !/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || `${endDate}${endTime}` <= `${startDate}${startTime}`) return sendError(response, 400, 'Choose a saved person and valid arrival and departure times.')
-      const people = await sql`SELECT id FROM directory_people WHERE id = ${personId}`
+      if (!name || !/^\d{8}$/.test(startDate) || !/^\d{8}$/.test(endDate) || !/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || `${endDate}${endTime}` <= `${startDate}${startTime}`) return sendError(response, 400, 'Choose a saved person and valid arrival and departure times.')
+      const people = await sql`SELECT id FROM directory_people WHERE id = ${requestedPersonId} OR (${requestedPersonId} = '' AND (LOWER(TRIM(name)) = LOWER(${name}) OR (${email} <> '' AND LOWER(email) = LOWER(${email})))) ORDER BY CASE WHEN id = ${requestedPersonId} THEN 0 ELSE 1 END LIMIT 1`
       if (!people.length) return sendError(response, 404, 'Save this person’s contact details before adding a visit.')
+      const personId = String(people[0].id)
       await sql`
         INSERT INTO visitor_stays (id, person_id, name, phone, email, start_date, start_time, end_date, end_time, updated_at)
         VALUES (${id}, ${personId}, ${name}, ${phone}, ${email}, ${startDate}, ${startTime}, ${endDate}, ${endTime}, NOW())
