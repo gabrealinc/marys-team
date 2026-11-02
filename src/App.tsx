@@ -280,6 +280,7 @@ function App() {
   const [showHelp, setShowHelp] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [addInitialDate, setAddInitialDate] = useState<string | undefined>()
+  const [addRepeatsByDefault, setAddRepeatsByDefault] = useState(false)
   const [maryCalendarOpen, setMaryCalendarOpen] = useState(false)
   const [familyCalendarOpen, setFamilyCalendarOpen] = useState(false)
   const [busyPerson, setBusyPerson] = useState<keyof FamilyInTown | null>(null)
@@ -843,9 +844,9 @@ function App() {
       {showAvailability && <AvailabilityModal visitorPreferences={visitorPreferences} onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
       {showPlanRequest === 'food' ? <FoodSignupModal initialWindow={planRequestWindow} visitorPreferences={visitorPreferences} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} foodReservedDates={unavailableFoodDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} /> : showPlanRequest && <PlanRequestModal visitorPreferences={visitorPreferences} type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={unavailableFoodDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => samePerson({ ...editingAvailability, email: editingAvailability.email || '' }, { ...entry, email: entry.email || '' }) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
-      {showAdd && <AddEventModal initialContact={addContact} initialForWho={addForWho} initialDate={addInitialDate} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => { setShowAdd(false); setAddContact(undefined); setAddInitialDate(undefined) }} onSave={saveEvents} />}
+      {showAdd && <AddEventModal initialContact={addContact} initialForWho={addForWho} initialDate={addInitialDate} initialRepeats={addRepeatsByDefault} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => { setShowAdd(false); setAddContact(undefined); setAddInitialDate(undefined); setAddRepeatsByDefault(false) }} onSave={saveEvents} />}
       {maryCalendarOpen && <MaryCalendarModal events={teamEvents} onClose={() => setMaryCalendarOpen(false)} onAdd={(date) => { setMaryCalendarOpen(false); setAddInitialDate(date); setAddForWho('Mary'); setShowAdd(true) }} onEdit={(event) => { setMaryCalendarOpen(false); setEditingEvent(event) }} />}
-      {familyCalendarOpen && <FamilyCalendarModal events={teamEvents} onClose={() => setFamilyCalendarOpen(false)} onAdd={(person, date) => { setFamilyCalendarOpen(false); setAddInitialDate(date); setAddForWho(person); setShowAdd(true) }} onEdit={(event) => { setFamilyCalendarOpen(false); setEditingEvent(event) }} />}
+      {familyCalendarOpen && <FamilyCalendarModal events={teamEvents} onClose={() => setFamilyCalendarOpen(false)} onAdd={(person, date, repeats = false) => { setFamilyCalendarOpen(false); setAddInitialDate(date); setAddRepeatsByDefault(repeats); setAddForWho(person); setShowAdd(true) }} onEdit={(event) => { setFamilyCalendarOpen(false); setEditingEvent(event) }} />}
       {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} inTownDates={familyInTownDates[busyPerson]} livesWithMary={familyInTown[busyPerson]} onClose={() => setBusyPerson(null)} onSave={(entries, dates) => saveFamilyBusyDates(busyPerson, entries, dates)} />}
       {inTownDatesPerson && <FamilyInTownDatesModal person={inTownDatesPerson} selectedDates={familyInTownDates[inTownDatesPerson]} onClose={() => setInTownDatesPerson(null)} onSave={(dates) => saveFamilyInTownDates(inTownDatesPerson, dates)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
@@ -1208,35 +1209,35 @@ function FoodDateSettingsModal({ settings, blockedDates, reservedDates, onClose,
   </ModalShell>
 }
 
-function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodReservedDates, foodBlockedDates, foodPreferences, stuWorkDefaults, onSaveStuWorkHours, familyInTown, familyInTownDates, onSaveFood, onSaveFoodBlockedDates, onSaveFoodPreferences, onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onOpenFamilyCalendar, onOpenMaryCalendar, onAddSchedule }: { careTeam: CareTeamMember[]; onEditCareMember: (member: CareTeamMember) => void; foodSettings: FoodSettings; foodReservedDates: string[]; foodBlockedDates: string[]; foodPreferences: FoodPreferences; stuWorkDefaults: StuWorkDefaults; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveFoodBlockedDates: (dates: string[]) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onOpenFamilyCalendar: () => void; onOpenMaryCalendar: () => void; onAddSchedule: (person: ForWho) => void }) {
+function FamilyPreferences({ careTeam, onEditCareMember, foodSettings, foodReservedDates, foodBlockedDates, foodPreferences, stuWorkDefaults, onSaveStuWorkHours, familyInTown: _familyInTown, familyInTownDates, onSaveFood, onSaveFoodBlockedDates, onSaveFoodPreferences, onSaveFamilyInTown: _onSaveFamilyInTown, onEditInTownDates, onEditBusyDates, onOpenFamilyCalendar, onOpenMaryCalendar, onAddSchedule }: { careTeam: CareTeamMember[]; onEditCareMember: (member: CareTeamMember) => void; foodSettings: FoodSettings; foodReservedDates: string[]; foodBlockedDates: string[]; foodPreferences: FoodPreferences; stuWorkDefaults: StuWorkDefaults; onSaveStuWorkHours: (defaults: StuWorkDefaults) => Promise<boolean>; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onSaveFood: (settings: FoodSettings) => Promise<boolean>; onSaveFoodBlockedDates: (dates: string[]) => Promise<boolean>; onSaveFoodPreferences: (preferences: FoodPreferences) => Promise<boolean>; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void; onEditBusyDates: (person: keyof FamilyInTown) => void; onOpenFamilyCalendar: () => void; onOpenMaryCalendar: () => void; onAddSchedule: (person: ForWho) => void }) {
   void stuWorkDefaults
   void onSaveStuWorkHours
   void familyInTownDates
   void onEditInTownDates
-  const [openSection, setOpenSection] = useState<'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'care' | null>('Mary')
+  void onOpenMaryCalendar
+  void onAddSchedule
+  void onEditBusyDates
+  const [openSection, setOpenSection] = useState<'care' | 'food' | null>(null)
   const [foodDays, setFoodDays] = useState(foodSettings.weekdays)
   const [foodStart, setFoodStart] = useState(foodSettings.startTime)
   const [foodEnd, setFoodEnd] = useState(foodSettings.endTime)
   const [managingFoodDates, setManagingFoodDates] = useState(false)
-  const familyNames = ['Mary', 'Stu', 'Gabby', 'Spencer'] as const
   return <div className="family-preferences">
-    <div className="family-calendar-launch"><div><h3>Family calendar</h3><p>See everyone’s schedule together. Tap a date to view, add, or edit an item just like a phone calendar.</p></div><button className="primary-button" type="button" onClick={onOpenFamilyCalendar}><CalendarDays aria-hidden="true" /> Open family calendar</button></div>
-    <h3>Family settings</h3><p>Use these sections only to change who lives with Mary or manage one person directly.</p>
+    <div className="family-calendar-launch"><div><h3>Family calendar</h3><p>Use the Overall, Mary, Stu, Gabby, and Spencer tabs to manage regular hours and one-time changes.</p></div><button className="primary-button" type="button" onClick={onOpenFamilyCalendar}><CalendarDays aria-hidden="true" /> Open family calendar</button></div>
     <div className="family-accordion">
-      {familyNames.map((name) => <section className="family-accordion-item" key={name}>
-        <button className="family-accordion-toggle" type="button" aria-expanded={openSection === name} onClick={() => setOpenSection((current) => current === name ? null : name)}>
-          <span><strong>{name}</strong><small>{name === 'Mary' ? 'Appointments and care' : name === 'Stu' ? 'Husband' : name === 'Gabby' ? 'Daughter' : 'Son'}</small></span><ChevronRight className={openSection === name ? 'open' : ''} aria-hidden="true" />
-        </button>
-        {openSection === name && <div className="family-accordion-panel">{name === 'Mary' ? <div className="family-schedule-step"><p>View Mary’s appointments by date or add a new one.</p><div className="form-actions"><button className="primary-button" type="button" onClick={onOpenMaryCalendar}><CalendarDays aria-hidden="true" /> Open Mary’s calendar</button><button className="secondary-button" type="button" onClick={() => onAddSchedule('Mary')}><CalendarDays aria-hidden="true" /> Add Mary’s appointment</button></div></div> : <><div className="family-schedule-step"><strong>1. Does {name} live with Mary?</strong><label className="in-town-check"><input type="checkbox" checked={familyInTown[name]} onChange={(event) => void onSaveFamilyInTown(name, event.target.checked)} /><span>Lives with Mary full time</span></label></div><div className="family-schedule-step"><strong>2. {name}’s calendar</strong><p>{familyInTown[name] ? `Open ${name}’s calendar to add work, appointments, or other unavailable hours.` : `Select the dates ${name} is in town. Within each selected date, you can optionally add work, an appointment, or away hours.`}</p><button className="primary-button" type="button" onClick={() => onEditBusyDates(name)}><CalendarDays aria-hidden="true" /> Open {name}’s calendar</button></div></>}</div>}
-      </section>)}
       <section className="family-accordion-item">
         <button className="family-accordion-toggle" type="button" aria-expanded={openSection === 'care'} onClick={() => setOpenSection((current) => current === 'care' ? null : 'care')}>
           <span><strong>Nurse / Hired Help</strong><small>Scheduled caregivers</small></span><ChevronRight className={openSection === 'care' ? 'open' : ''} aria-hidden="true" />
         </button>
         {openSection === 'care' && <div className="family-accordion-panel care-team-panel"><button className="primary-button" type="button" onClick={() => onEditCareMember({ id: crypto.randomUUID(), name: '', phone: '', email: '', role: 'Helper', weekdays: [1], startTime: '09:00', endTime: '17:00', autoAssign: false })}><Users aria-hidden="true" /> Add nurse or hired help</button>{careTeam.length ? careTeam.map((member) => <button className="person-select" type="button" key={member.id} onClick={() => onEditCareMember(member)}><span><strong>{member.name}</strong><small>{member.role === 'Helper' ? 'Hired help' : member.role}</small><small>{member.weekdays.map((day) => weekdayChoices.find((choice) => choice.value === day)?.short).filter(Boolean).join(', ')} · {eventTimeLabel(member.startTime)} – {eventTimeLabel(member.endTime)}</small></span><span>Edit <ChevronRight aria-hidden="true" /></span></button>) : <p>No nurses or hired help have been added.</p>}</div>}
       </section>
+      <section className="family-accordion-item">
+        <button className="family-accordion-toggle" type="button" aria-expanded={openSection === 'food'} onClick={() => setOpenSection((current) => current === 'food' ? null : 'food')}>
+          <span><strong>Food</strong><small>Drop-off dates, hours, and preferences</small></span><ChevronRight className={openSection === 'food' ? 'open' : ''} aria-hidden="true" />
+        </button>
+        {openSection === 'food' && <div className="family-accordion-panel food-settings-panel"><div className="family-rules"><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the usual weekly days and hours. Use the calendar to close or reopen individual dates.</p><fieldset className="weekday-picker"><legend>Usual food days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save weekly schedule</button><button className="secondary-button" type="button" onClick={() => setManagingFoodDates(true)}><CalendarDays aria-hidden="true" /> Open or close food dates</button></div></form>{managingFoodDates && <FoodDateSettingsModal settings={{ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }} blockedDates={foodBlockedDates} reservedDates={foodReservedDates} onClose={() => setManagingFoodDates(false)} onSave={async (dates) => { if (await onSaveFoodBlockedDates(dates)) setManagingFoodDates(false) }} />}<FoodPreferencesEditor preferences={foodPreferences} onSave={onSaveFoodPreferences} /></div></div>}
+      </section>
     </div>
-    <div className="family-rules"><form className="simple-settings" onSubmit={async (event) => { event.preventDefault(); if (foodDays.length && foodEnd > foodStart) await onSaveFood({ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }) }}><h3>Food drop-off days</h3><p>Choose the usual weekly days and hours. Use the calendar to close or reopen individual dates.</p><fieldset className="weekday-picker"><legend>Usual food days</legend>{weekdayChoices.map((day) => <label key={day.value}><input type="checkbox" checked={foodDays.includes(day.value)} onChange={() => setFoodDays((current) => current.includes(day.value) ? current.filter((value) => value !== day.value) : [...current, day.value].sort())} /><span aria-hidden="true">{day.short}</span><span className="sr-only">{day.label}</span></label>)}</fieldset><div className="field-row"><div><label htmlFor="food-start">From</label><input id="food-start" type="time" value={foodStart} onChange={(event) => setFoodStart(event.target.value)} required /></div><div><label htmlFor="food-end">Until</label><input id="food-end" type="time" value={foodEnd} onChange={(event) => setFoodEnd(event.target.value)} required /></div></div><div className="form-actions"><button className="primary-button" type="submit" disabled={!foodDays.length || foodEnd <= foodStart}><Check aria-hidden="true" /> Save weekly schedule</button><button className="secondary-button" type="button" onClick={() => setManagingFoodDates(true)}><CalendarDays aria-hidden="true" /> Open or close food dates</button></div></form>{managingFoodDates && <FoodDateSettingsModal settings={{ weekdays: foodDays, startTime: foodStart, endTime: foodEnd }} blockedDates={foodBlockedDates} reservedDates={foodReservedDates} onClose={() => setManagingFoodDates(false)} onSave={async (dates) => { if (await onSaveFoodBlockedDates(dates)) setManagingFoodDates(false) }} />}<FoodPreferencesEditor preferences={foodPreferences} onSave={onSaveFoodPreferences} /></div>
   </div>
 }
 
@@ -1522,34 +1523,40 @@ function compactEventDate(date: string, time: string) {
   return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
 }
 
-function FamilyCalendarModal({ events, onClose, onAdd, onEdit }: { events: TeamEvent[]; onClose: () => void; onAdd: (person: ForWho, date: string) => void; onEdit: (event: TeamEvent) => void }) {
+function FamilyCalendarModal({ events, onClose, onAdd, onEdit }: { events: TeamEvent[]; onClose: () => void; onAdd: (person: ForWho, date: string, repeats?: boolean) => void; onEdit: (event: TeamEvent) => void }) {
   const days = getThirtyDays(60)
   const first = days[0].dateKey
   const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
   const familyNames = ['Mary', 'Stu', 'Gabby', 'Spencer'] as const
   const familyEvents = events.filter((event) => familyNames.includes(event.forWho as typeof familyNames[number]) && !event.publicAction && !event.isCalculatedCoverage && event.scheduleSource !== 'nurse_coverage')
+  const [activePerson, setActivePerson] = useState<'Overall' | typeof familyNames[number]>('Overall')
   const [activeDate, setActiveDate] = useState(() => familyEvents.find((event) => event.date.slice(0, 8) >= first)?.date.slice(0, 8) || first)
-  const activeEvents = familyEvents.filter((event) => event.date.startsWith(activeDate)).sort((a, b) => a.time.localeCompare(b.time))
+  const visibleFamilyEvents = activePerson === 'Overall' ? familyEvents : familyEvents.filter((event) => event.forWho === activePerson)
+  const activeEvents = visibleFamilyEvents.filter((event) => event.date.startsWith(activeDate)).sort((a, b) => a.time.localeCompare(b.time))
+  const repeatingEvents = activePerson === 'Overall' ? [] : familyEvents.filter((event) => event.forWho === activePerson && (event.repeatGroupId || event.scheduleSource === 'stu_work'))
+  const repeatingSummaries = [...new Map(repeatingEvents.map((event) => [`${event.title}-${new Date(`${event.date.slice(0, 4)}-${event.date.slice(4, 6)}-${event.date.slice(6, 8)}T12:00:00`).getDay()}-${event.time}-${event.endTime}`, event])).values()]
   const activeLabel = dayLabelForDate(`${activeDate.slice(0, 4)}-${activeDate.slice(4, 6)}-${activeDate.slice(6, 8)}`)
   const inputDate = `${activeDate.slice(0, 4)}-${activeDate.slice(4, 6)}-${activeDate.slice(6, 8)}`
 
   return <ModalShell title="Family calendar" onClose={onClose}>
-    <p className="modal-intro">Tap a date to see everyone’s schedule. Add or edit an item below.</p>
+    <p className="modal-intro">Choose Overall or one person. Tap a date to add, change, or remove something.</p>
+    <div className="family-calendar-tabs" role="tablist" aria-label="Choose a family calendar">{(['Overall', ...familyNames] as const).map((person) => <button role="tab" aria-selected={activePerson === person} className={activePerson === person ? 'active' : ''} type="button" key={person} onClick={() => setActivePerson(person)}>{person}</button>)}</div>
+    {activePerson !== 'Overall' && <div className="regular-hours-summary"><div><strong>{activePerson === 'Mary' ? 'Regular appointments' : 'Regular weekly hours'}</strong><p>{repeatingSummaries.length ? repeatingSummaries.map((event) => `${event.dayLabel.split(',')[0]} ${eventTimeRangeLabel(event)}`).join(' · ') : 'No repeating schedule added yet.'}</p></div><button className="secondary-button compact-button" type="button" onClick={() => onAdd(activePerson, inputDate, true)}>+ Add regular hours</button></div>}
     <div className="calendar-date-picker family-calendar-picker">
       <div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="date-picker-grid">
         {Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`family-blank-${index}`} />)}
         {days.map((day) => {
-          const people = familyNames.filter((person) => familyEvents.some((event) => event.forWho === person && event.date.startsWith(day.dateKey)))
-          return <button type="button" key={day.dateKey} aria-pressed={activeDate === day.dateKey} aria-label={`${day.fullDay}${people.length ? `, schedule for ${people.join(', ')}` : ', no family schedule'}`} onClick={() => setActiveDate(day.dateKey)}><span>{day.monthShort}</span><strong>{day.number}</strong>{people.length > 0 && <small>{people.map((person) => person[0]).join(' ')}</small>}</button>
+          const people = familyNames.filter((person) => visibleFamilyEvents.some((event) => event.forWho === person && event.date.startsWith(day.dateKey)))
+          return <button type="button" key={day.dateKey} aria-pressed={activeDate === day.dateKey} aria-label={`${day.fullDay}${people.length ? `, schedule for ${people.join(', ')}` : ', no family schedule'}`} onClick={() => setActiveDate(day.dateKey)}><span>{day.monthShort}</span><strong>{day.number}</strong>{people.length > 0 && <small>{activePerson === 'Overall' ? people.map((person) => person[0]).join(' ') : '•'}</small>}</button>
         })}
       </div>
     </div>
     <div className="family-schedule-step">
       <strong>{activeLabel}</strong>
-      {activeEvents.length ? <div className="calendar-items">{activeEvents.map((event) => <button className="person-select" type="button" key={event.id} onClick={() => onEdit(event)}><span><strong>{event.forWho}: {eventDisplayTitle(event, true)}</strong><small>{eventTimeRangeLabel(event)}</small></span><span>Edit <ChevronRight aria-hidden="true" /></span></button>)}</div> : <p className="form-note">Nothing is scheduled for the family on this date.</p>}
+      {activeEvents.length ? <div className="calendar-items">{activeEvents.map((event) => <button className="person-select" type="button" key={event.id} onClick={() => onEdit(event)}><span><strong>{activePerson === 'Overall' ? `${event.forWho}: ` : ''}{eventDisplayTitle(event, true)}</strong><small>{eventTimeRangeLabel(event)}</small></span><span>Edit <ChevronRight aria-hidden="true" /></span></button>)}</div> : <p className="form-note">Nothing is scheduled for {activePerson === 'Overall' ? 'the family' : activePerson} on this date.</p>}
       <p className="form-note"><strong>Add to this date</strong></p>
-      <div className="family-calendar-add-actions">{familyNames.map((person) => <button className="secondary-button compact-button" type="button" key={person} onClick={() => onAdd(person, inputDate)}>+ {person}</button>)}</div>
+      <div className="family-calendar-add-actions">{(activePerson === 'Overall' ? familyNames : [activePerson]).map((person) => <button className="secondary-button compact-button" type="button" key={person} onClick={() => onAdd(person, inputDate)}>+ {person}</button>)}</div>
     </div>
   </ModalShell>
 }
@@ -1697,9 +1704,9 @@ function DriverFields({ contacts, driver, onChange }: { contacts: DriverContact[
   </div>
 }
 
-function AddEventModal({ initialContact, initialForWho, initialDate, availability, events, savedContacts, onClose, onSave }: { initialContact?: DriverContact; initialForWho: ForWho; initialDate?: string; availability: Availability[]; events: TeamEvent[]; savedContacts: DriverContact[]; onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
+function AddEventModal({ initialContact, initialForWho, initialDate, initialRepeats = false, availability, events, savedContacts, onClose, onSave }: { initialContact?: DriverContact; initialForWho: ForWho; initialDate?: string; initialRepeats?: boolean; availability: Availability[]; events: TeamEvent[]; savedContacts: DriverContact[]; onClose: () => void; onSave: (events: TeamEvent[]) => Promise<boolean> }) {
   const [form, setForm] = useState(() => ({ title: initialForWho === 'Mary' ? 'At Home Appointment' : '', date: initialDate || localDateInputValue(), time: '12:00', endTime: '13:00', forWho: initialForWho, helpNeeded: initialForWho === 'Mary' ? 'No help needed' : needsTimeWithMary(initialForWho) ? 'Spend time with Mary' : 'Need a ride', details: '', locationChoice: initialForWho === 'Mary' ? 'home' : 'location', location: '', helper: initialContact?.name || '', helperPhone: initialContact?.phone || '', helperEmail: initialContact?.email || '', helperPersonId: initialContact?.personId, isFlexible: false }))
-  const [repeats, setRepeats] = useState(false)
+  const [repeats, setRepeats] = useState(initialRepeats)
   const [saving, setSaving] = useState(false)
   const [repeatThrough, setRepeatThrough] = useState(() => {
     const repeatDefault = new Date()
