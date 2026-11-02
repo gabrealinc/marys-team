@@ -93,13 +93,8 @@ function addMinutes(value: string, amount: number) {
   return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
 }
 
-function familyMembersInTown(dateKey: string, familyInTown: FamilyInTown, familyInTownDates: FamilyInTownDates) {
-  return ['Mary', ...(['Stu', 'Gabby', 'Spencer'] as const).filter((person) => familyInTown[person] || familyInTownDates[person].includes(dateKey))]
-}
-
-function familyMealLabel(names: string[]) {
-  const people = names.length === 1 ? names[0] : names.length === 2 ? names.join(' and ') : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`
-  return `Meal for ${names.length} ${names.length === 1 ? 'person' : 'people'}: ${people}.`
+function familyMealLabel() {
+  return 'Drop off food for the family.'
 }
 
 function isNoSupport(value: string) {
@@ -333,7 +328,7 @@ function App() {
   const unavailableFoodDates = [...new Set([...foodReservedDates, ...foodBlockedDates, ...visitorStayDateKeys(visitorStays)])]
   const foodNeeds: TeamEvent[] = getThirtyDays(60).flatMap((day) => {
     const slots = foodTimeSlots(day.dateKey, foodSettings, unavailableFoodDates, teamEvents)
-    const mealLabel = familyMealLabel(familyMembersInTown(day.dateKey, familyInTown, familyInTownDates))
+    const mealLabel = familyMealLabel()
     return slots.length ? [{ id: `food-open-${day.dateKey}`, category: 'home' as const, forWho: 'Family' as const, date: `${day.dateKey}T${slots[0].replace(':', '')}00`, dayLabel: day.fullDay, time: slots[0], endTime: addMinutes(slots[slots.length - 1], 30), title: 'Bring food', details: `${mealLabel} Choose this day to see food preferences, select an available drop-off time, and tell us what you’re bringing. Brief drop-off only; no social visit.`, helpNeeded: 'Food drop-off', publicAction: 'food' as const }]: []
   })
   const supportFeedEvents = [...visitorCoveredHelp.flatMap((event) => applyNurseCoverage(event, careTeam)), ...foodNeeds]
@@ -907,7 +902,7 @@ function App() {
           }} />
         : <EditEventModal event={editingEvent} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => setEditingEvent(null)} onSave={updateEvent} onRemove={removeEvent} />)}
       {showAvailability && <AvailabilityModal visitorPreferences={visitorPreferences} onClose={() => setShowAvailability(false)} onSave={saveAvailability} />}
-      {showPlanRequest === 'food' ? <FoodSignupModal initialWindow={planRequestWindow} visitorPreferences={visitorPreferences} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} foodReservedDates={unavailableFoodDates} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} /> : showPlanRequest && <PlanRequestModal visitorPreferences={visitorPreferences} type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={unavailableFoodDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
+      {showPlanRequest === 'food' ? <FoodSignupModal initialWindow={planRequestWindow} visitorPreferences={visitorPreferences} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} foodReservedDates={unavailableFoodDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} /> : showPlanRequest && <PlanRequestModal visitorPreferences={visitorPreferences} type={showPlanRequest} initialWindow={planRequestWindow} events={teamEvents} foodSettings={foodSettings} foodPreferences={foodPreferences} visitSettings={visitSettings} foodReservedDates={unavailableFoodDates} onClose={() => { setShowPlanRequest(null); setPlanRequestWindow(null) }} onSave={saveProposedPlan} />}
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => samePerson({ ...editingAvailability, email: editingAvailability.email || '' }, { ...entry, email: entry.email || '' }) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
       {showAdd && <AddEventModal initialContact={addContact} initialForWho={addForWho} initialDate={addInitialDate} initialRepeats={addRepeatsByDefault} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => { setShowAdd(false); setAddContact(undefined); setAddInitialDate(undefined); setAddRepeatsByDefault(false) }} onSave={saveEvents} />}
       {maryCalendarOpen && <MaryCalendarModal events={teamEvents} onClose={() => setMaryCalendarOpen(false)} onAdd={(date) => { setMaryCalendarOpen(false); setAddInitialDate(date); setAddForWho('Mary'); setShowAdd(true) }} onEdit={(event) => { setMaryCalendarOpen(false); setEditingEvent(event) }} />}
@@ -1399,7 +1394,7 @@ function SignupModal({ visitorPreferences, event, onClose, onSave }: { visitorPr
   return <ModalShell title="Sign up for practical help" onClose={onClose}><div className="modal-summary"><strong>{event.title}</strong><span>{event.isFlexible ? 'Anytime' : `${event.dayLabel}, help is welcome anytime from ${eventTimeRangeLabel(event)}`}</span><p>{event.helpNeeded}</p></div><VisitorNotice text={visitorPreferences} /><form onSubmit={submit}>{!event.isFlexible && <><p className="form-note"><strong>{event.helpNeeded.toLowerCase().includes('ride') ? 'Appointment helpers must stay for the entire appointment and provide hands-on mobility support.' : 'Choose a time when you can provide the practical support requested. This is not a social visit.'}</strong></p><div className="field-row"><div><label htmlFor="helper-start">I can arrive at</label><input id="helper-start" readOnly={isRide} type="time" min={event.time} max={event.endTime} value={startTime} onChange={(e) => setStartTime(e.target.value)} required /></div><div><label htmlFor="helper-end">I need to leave at</label><input id="helper-end" readOnly={isRide} type="time" min={event.time} max={event.endTime} value={endTime} onChange={(e) => setEndTime(e.target.value)} required /></div></div>{!timeIsValid && <p className="field-error">Choose a start and end time inside the open window.</p>}</>}<label htmlFor="helper-name">Your name</label><input id="helper-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Type your first and last name" autoFocus required /><label htmlFor="helper-phone">Your phone number</label><input id="helper-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Example: (602) 555-0123" autoComplete="tel" required /><label htmlFor="helper-email">Your email address</label><input id="helper-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required /><label htmlFor="helper-note">Note or question <span>(optional)</span></label><textarea id="helper-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Describe any practical information about the help you can provide." /><p className="form-note">Confirmations, changes, and cancellations are communicated by email. Your exact time and note will be included with your request. We will email you after it is approved or declined. Please do not come unless confirmed, and respect any cancellation. No need to text for the address.</p><label className="repeat-toggle"><input type="checkbox" required /><span>I have read the visitor preferences and can provide the requested practical support. I will wait for confirmation before coming.</span></label><div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !timeIsValid} aria-busy={saving}><Check aria-hidden="true" /> {saving ? 'Submitting…' : 'Submit this time'}</button></div></form></ModalShell>
 }
 
-function FoodSignupModal({ initialWindow, visitorPreferences, events, foodSettings, foodPreferences, foodReservedDates, familyInTown, familyInTownDates, onClose, onSave }: { initialWindow?: TeamEvent | null; visitorPreferences: string; events: TeamEvent[]; foodSettings: FoodSettings; foodPreferences: FoodPreferences; foodReservedDates: string[]; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
+function FoodSignupModal({ initialWindow, visitorPreferences, events, foodSettings, foodPreferences, foodReservedDates, onClose, onSave }: { initialWindow?: TeamEvent | null; visitorPreferences: string; events: TeamEvent[]; foodSettings: FoodSettings; foodPreferences: FoodPreferences; foodReservedDates: string[]; onClose: () => void; onSave: (plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) => Promise<boolean> }) {
   const [selectedDate, setSelectedDate] = useState(initialWindow ? `${initialWindow.date.slice(0, 4)}-${initialWindow.date.slice(4, 6)}-${initialWindow.date.slice(6, 8)}` : '')
   const [time, setTime] = useState(initialWindow?.time || '')
   const [contact, setContact] = useState(savedHelperContact)
@@ -1411,7 +1406,7 @@ function FoodSignupModal({ initialWindow, visitorPreferences, events, foodSettin
   const days = getThirtyDays(60).map((day) => {
     const iso = `${day.dateKey.slice(0, 4)}-${day.dateKey.slice(4, 6)}-${day.dateKey.slice(6, 8)}`
     const slots = foodTimeSlots(day.dateKey, foodSettings, foodReservedDates, events)
-    return { ...day, iso, slots, mealLabel: familyMealLabel(familyMembersInTown(day.dateKey, familyInTown, familyInTownDates)) }
+    return { ...day, iso, slots, mealLabel: familyMealLabel() }
   }).filter((day) => day.slots.length)
   const selected = days.find((day) => day.iso === selectedDate)
   const valid = Boolean(selected?.slots.includes(time))
