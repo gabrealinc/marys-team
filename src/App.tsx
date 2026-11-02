@@ -1,4 +1,4 @@
-Warning: truncated output (original token count: 50952)
+Warning: truncated output (original token count: 50969)
 Total output lines: 1844
 
 import { useEffect, useRef, useState } from 'react'
@@ -1143,9 +1143,7 @@ function OrganizerPanel({ needs: _needs, notifications, onRefresh, homeAddress, 
     </div>
 
     {tab === 'people' && <div className="family-schedule-actions"><button className="primary-button" type="button" onClick={() => setSelectedPerson({ name: '', phone: '', email: '' })}>+ Add volunteer</button></div>}
-    {tab === 'requests' && (requests.length > 0 ? <section className="people-summary" id="approval-inbox"><div className="people-summary-heading"><div><h3>Needs approval</h3><p>Approve or decline each request here. There is no separate request area to manage.</p></div><strong>{requests.length} waiting</strong></div><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div>{request.proposalType === 'food' && <button className="secondary-button compact-button" type="button" onClick={() => setReschedulingFood(request)}>Offer different dates</button>}<button className="text-button" type=…952 tokens truncated… onSaveCareTeam(member)) setEditingMember(null) }} />}
-  </section>
-}
+    {tab === 'requests' && (requests.length > 0 ? <section className="people-summary" id="approval-inbox"><div className="people-summary-heading"><div><h3>Needs approval</h3><p>Approve or decline each request here. There is no separate request area to manage.</p></div><strong>{requests.length} waiting</strong></div><div className="organizer-requests">{requests.map((request) => <article key={request.id}><div><strong>{request.requesterName}</strong><span className="compact-contact"><a href={`tel:${request.requesterPhone}`}>{request.requesterPhone}</a>{request.requesterEmail && <a href={`mailto:${request.requesterEmail}`}>{request.requesterEmail}</a>}</span><p>{request.proposalType === 'food' ? 'Food drop-off' : request.proposalType === 'stop_by' ? 'Stop by' : request.title}</p><small>{request.isFlexible ? 'Anytime' : `${request.dayLabel}, ${eventTimeLabel(request.requestStartTime || request.time)} – ${eventTimeLabel(request.requestEndTime || request.endTime)}`}{request.proposalType ? request.details ? ` · ${request.details}` : ` · ${request.requestNote || ''}` : ` · ${request.helpNeeded}${request.requestNote ? ` · “${request.requestNote}”` : ''}`}</small></div><div>{request.proposalType === 'food' && <button className="secondary-button compact-button" type="button" onClick={() => setReschedulingFood(request)}>Offer different dates</button>}<button className="text-button" type=…969 tokens truncated…}
 
 function CareTeamMemberModal({ member, onClose, onSave }: { member: CareTeamMember; onClose: () => void; onSave: (member: CareTeamMember) => void }) {
   const [form, setForm] = useState(member)
@@ -1787,7 +1785,7 @@ function EditEventModal({ event, availability, events, savedContacts, onClose, o
     <label htmlFor="edit-event-help">What support is needed?</label><select id="edit-event-help" value={form.helpNeeded} onChange={(changeEvent) => setForm({ ...form, helpNeeded: changeEvent.target.value })}>{(form.helpNeeded === 'Group event' ? ['Group event', ...supportChoices] : supportChoices).map((choice) => <option key={choice} value={choice}>{choice === 'Spend time with Mary' ? 'Help at home' : choice}</option>)}</select>{needsTimeWithMary(form.forWho) && <p className="form-note">Spend time with Mary is suggested for Stu and Coco plans, but you can choose any option, including No help needed.</p>}
     {(!isNoSupport(form.helpNeeded) || event.proposalType === 'food') && <DriverFields contacts={contacts} driver={{ personId: form.helperPersonId, name: form.helper, phone: form.helperPhone, email: form.helperEmail }} onChange={(driver) => setForm({ ...form, helper: driver.name, helperPhone: driver.phone, helperEmail: driver.email, helperPersonId: driver.personId })} />}
 
-    {!hideLocation && <>
+    {!hideLocation && <div className="location-fields">
       <label htmlFor="edit-event-location-choice">Where?</label>
       <select id="edit-event-location-choice" value={form.locationChoice} onChange={(changeEvent) => {
         const locationChoice = changeEvent.target.value
@@ -1796,11 +1794,11 @@ function EditEventModal({ event, availability, events, savedContacts, onClose, o
         <option value="home">Home</option>
         <option value="location">Location</option>
       </select>
-      {form.locationChoice === 'location' && <>
+      {form.locationChoice === 'location' && <div className="location-fields">
         <label htmlFor="edit-event-location">Location name or address</label>
         <input id="edit-event-location" required value={form.location || ''} onChange={(changeEvent) => setForm({ ...form, location: changeEvent.target.value })} />
-      </>}
-    </>}
+      </div>}
+    </div>}
     <label htmlFor="edit-event-details">Details {!(form.forWho === 'Mary' && event.category === 'appointment') && <span>(optional)</span>}</label><textarea id="edit-event-details" required={form.forWho === 'Mary' && event.category === 'appointment'} value={form.details} onChange={(changeEvent) => setForm({ ...form, details: changeEvent.target.value })} placeholder={form.forWho === 'Mary' && event.category === 'appointment' ? 'Example: Stretch with Cara' : defaultEventDetails} />
     <div className="remove-area">{confirmRemove ? <div className="remove-confirm" role="alert"><p><strong>Remove this schedule item?</strong></p><div><button className="text-button" type="button" onClick={() => setConfirmRemove(false)}>Keep it</button><button className="danger-button" type="button" onClick={() => onRemove(event.id)}><Trash2 aria-hidden="true" /> Yes, remove it</button></div></div> : <button className="remove-button" type="button" onClick={() => setConfirmRemove(true)}><Trash2 aria-hidden="true" /> Remove this item</button>}</div>
     <div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={!timeIsValid}><Check aria-hidden="true" /> Save changes</button></div>
