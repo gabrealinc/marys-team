@@ -334,7 +334,7 @@ function App() {
   const foodNeeds: TeamEvent[] = getThirtyDays(60).flatMap((day) => {
     const slots = foodTimeSlots(day.dateKey, foodSettings, unavailableFoodDates, teamEvents)
     const mealLabel = familyMealLabel(familyMembersInTown(day.dateKey, familyInTown, familyInTownDates))
-    return slots.length ? [{ id: `food-open-${day.dateKey}`, category: 'home' as const, forWho: 'Mary' as const, date: `${day.dateKey}T${slots[0].replace(':', '')}00`, dayLabel: day.fullDay, time: slots[0], endTime: addMinutes(slots[slots.length - 1], 30), title: 'Bring food', details: `${mealLabel} Choose this day to see food preferences, select an available drop-off time, and tell us what you’re bringing. Brief drop-off only; no social visit.`, helpNeeded: 'Food drop-off', publicAction: 'food' as const }]: []
+    return slots.length ? [{ id: `food-open-${day.dateKey}`, category: 'home' as const, forWho: 'Family' as const, date: `${day.dateKey}T${slots[0].replace(':', '')}00`, dayLabel: day.fullDay, time: slots[0], endTime: addMinutes(slots[slots.length - 1], 30), title: 'Bring food', details: `${mealLabel} Choose this day to see food preferences, select an available drop-off time, and tell us what you’re bringing. Brief drop-off only; no social visit.`, helpNeeded: 'Food drop-off', publicAction: 'food' as const }]: []
   })
   const supportFeedEvents = [...visitorCoveredHelp.flatMap((event) => applyNurseCoverage(event, careTeam)), ...foodNeeds]
   const helpFeedEvents = supportFeedEvents.filter((event) => !event.helper && !event.requestPending)
@@ -1204,7 +1204,7 @@ function OrganizerPanel({ needs: _needs, notifications, onRefresh, homeAddress, 
     return slots.length ? [{
       id: `food-alternative-${day.dateKey}`,
       category: 'home' as const,
-      forWho: 'Mary' as const,
+      forWho: 'Family' as const,
       date: `${day.dateKey}T${slots[0].replace(':', '')}00`,
       dayLabel: day.fullDay,
       time: slots[0],
@@ -1641,7 +1641,7 @@ function FamilyCalendarModal({ events, familyInTown, familyInTownDates, onClose,
   const first = days[0].dateKey
   const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
   const familyNames = ['Mary', 'Stu', 'Gabby', 'Spencer'] as const
-  const familyEvents = events.filter((event) => familyNames.includes(event.forWho as typeof familyNames[number]) && !event.publicAction && !event.isCalculatedCoverage && event.scheduleSource !== 'nurse_coverage')
+  const familyEvents = events.filter((event) => (familyNames.includes(event.forWho as typeof familyNames[number]) || (event.forWho === 'Family' && event.proposalType === 'food')) && !event.publicAction && !event.isCalculatedCoverage && event.scheduleSource !== 'nurse_coverage')
   const [activePerson, setActivePerson] = useState<'Overall' | typeof familyNames[number]>('Overall')
   const [activeDate, setActiveDate] = useState(() => familyEvents.find((event) => event.date.slice(0, 8) >= first)?.date.slice(0, 8) || first)
   const visibleFamilyEvents = activePerson === 'Overall' ? familyEvents : familyEvents.filter((event) => event.forWho === activePerson)
@@ -1663,8 +1663,9 @@ function FamilyCalendarModal({ events, familyInTown, familyInTownDates, onClose,
         {Array.from({ length: blanks }, (_, index) => <span className="date-picker-blank" key={`family-blank-${index}`} />)}
         {days.map((day) => {
           const people = familyNames.filter((person) => visibleFamilyEvents.some((event) => event.forWho === person && event.date.startsWith(day.dateKey)))
+          const hasFamilyItem = visibleFamilyEvents.some((event) => event.forWho === 'Family' && event.date.startsWith(day.dateKey))
           const isInTown = activeFamilyMember ? familyInTown[activeFamilyMember] || familyInTownDates[activeFamilyMember].includes(day.dateKey) : null
-          return <button type="button" key={day.dateKey} aria-pressed={activeDate === day.dateKey} aria-label={`${day.fullDay}${isInTown === null ? '' : isInTown ? ', in town' : ', out of town'}${people.length ? `, schedule for ${people.join(', ')}` : ', no family schedule'}`} onClick={() => setActiveDate(day.dateKey)}><span>{day.monthShort}</span><strong>{day.number}</strong>{activeFamilyMember ? <small className={isInTown ? 'town-day-in' : 'town-day-out'}>{isInTown ? 'IN' : 'OUT'}</small> : people.length > 0 && <small>{activePerson === 'Overall' ? people.map((person) => person[0]).join(' ') : '•'}</small>}</button>
+          return <button type="button" key={day.dateKey} aria-pressed={activeDate === day.dateKey} aria-label={`${day.fullDay}${isInTown === null ? '' : isInTown ? ', in town' : ', out of town'}${people.length || hasFamilyItem ? `, schedule for ${[...people, ...(hasFamilyItem ? ['Family'] : [])].join(', ')}` : ', no family schedule'}`} onClick={() => setActiveDate(day.dateKey)}><span>{day.monthShort}</span><strong>{day.number}</strong>{activeFamilyMember ? <small className={isInTown ? 'town-day-in' : 'town-day-out'}>{isInTown ? 'IN' : 'OUT'}</small> : (people.length > 0 || hasFamilyItem) && <small>{activePerson === 'Overall' ? [...people.map((person) => person[0]), ...(hasFamilyItem ? ['F'] : [])].join(' ') : '•'}</small>}</button>
         })}
       </div>
     </div>
