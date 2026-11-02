@@ -6,7 +6,8 @@ import { queueNotification, processOutbox, notificationSummary, supersedeNotific
 import { scheduleEmailJob } from '../lib/email-queue.js'
 import { saveTemplate, previewTemplate, applyTemplate } from '../lib/templates.js'
 import { publicSchedule } from '../lib/public-schedule.js'
-import type { TeamEvent as ScheduleEvent, CareTeamMember as ScheduleCareTeam } from '../lib/schedule.js'
+import { visitorStayDateKeys } from '../lib/schedule.js'
+import type { TeamEvent as ScheduleEvent, CareTeamMember as ScheduleCareTeam, VisitorStay } from '../lib/schedule.js'
 import { defaultVisitorPreferences, signupVisitorPreferences, nurseOnDate, nameKey } from '../lib/care.js'
 
 type Category = 'appointment' | 'company' | 'home' | 'family' | 'dad'
@@ -287,7 +288,6 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
   try {
     const sql = database()
-    await sql`ALTER TABLE food_settings ADD COLUMN IF NOT EXISTS food_blocked_dates TEXT NOT NULL DEFAULT ''`
     const isOrganizer = organizerAuthorized(request)
     const privateSettings = await sql`SELECT home_address AS address FROM food_settings WHERE singleton = TRUE`
     const familyHomeAddress = String(privateSettings[0]?.address || process.env.HOME_ADDRESS || '').trim()
@@ -675,6 +675,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
       const familyInTownDates: FamilyInTownDates = { Stu: parseDates(foodRowsSettings[0]?.stuInTownDates), Gabby: parseDates(foodRowsSettings[0]?.gabbyInTownDates), Spencer: parseDates(foodRowsSettings[0]?.spencerInTownDates) }
       const careRows = await sql`SELECT id, person_id AS "personId", name, phone, email, role, weekdays, start_time AS "startTime", end_time AS "endTime", auto_assign AS "autoAssign" FROM care_team ORDER BY name ASC`
       const careTeam = careRows.map((row) => ({ ...row, weekdays: String(row.weekdays || '').split(',').map(Number).filter((day) => Number.isInteger(day) && day >= 0 && day <= 6), phone: isOrganizer ? row.phone : '', email: isOrganizer ? row.email : '' })) as CareTeamMember[]
+      const visitorRows = await sql`SELECT id, person_id AS "personId", name, phone, email, start_date AS "startDate", start_time AS "startTime", end_date AS "endDate", end_time AS "endTime" FROM visitor_stays WHERE end_date >= ${phoenixToday().replaceAll('-', '')} ORDER BY start_date ASC, start_time ASC`
+      const visitorStays = visitorRows.map((row) => ({ ...row, phone: isOrganizer ? row.phone : '', email: isOrganizer ? row.email : '' })) as VisitorStay[]
+      const visitorBlockedDates = visitorStayDateKeys(visitorStays)
       const nurseEvents: Record<string, unknown>[] = []
       const firstDay = phoenixToday()
       for (let offset = 0; offset < 62; offset++) {
@@ -692,10 +695,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
         return nurse && !String(event.helpNeeded).toLowerCase().includes('ride') ? { ...event, title: 'Nurse with Mary', details: 'Care is covered during this time.', helpNeeded: 'No help needed', forWho: 'Mary' } : event
       }), ...nurseEvents] as ScheduleEvent[]
       return response.status(200).json({
-        events: isOrganizer ? allEvents : publicSchedule(allEvents, careTeam as ScheduleCareTeam[], familyInTown, familyInTownDates),
+        events: isOrganizer ? allEvents : publicSchedule(allEvents, careTeam as ScheduleCareTeam[], familyInTown, familyInTownDates, visitorStays),
         visitorPreferences: signupVisitorPreferences(String(foodRowsSettings[0]?.visitorPreferences ?? defaultVisitorPreferences)),
-        ...(isOrganizer ? { homeAddress: familyHomeAddress, stuWorkDefaults, visitSettings, familyInTown, familyInTownDates, careTeam, supportContacts, templates, notifications } : {}),
-        availability: publicAvailability, organizer: isOrganizer, foodSettings, foodPreferences, foodReservedDates, foodBlockedDates: parseDates(foodRowsSettings[0]?.foodBlockedDates),
+        ...(isOrganizer ? { homeAddress: familyHomeAddress, stuWorkDefaults, visitSettings, familyInTown, familyInTownDates, careTeam, supportContacts, visitorStays, templates, notifications } : {}),
+        availability: publicAvailability, organizer: isOrganizer, foodSettings, foodPreferences, foodReservedDates, foodBlockedDates: isOrganizer ? parseDates(foodRowsSettings[0]?.foodBlockedDates) : [...new Set([...parseDates(foodRowsSettings[0]?.foodBlockedDates), ...visitorBlockedDates])],
       })
     }
 
@@ -998,6 +1001,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
         ), available AS (
           UPDATE availability SET name = ${name}, phone = ${phone}, email = ${email}
           WHERE person_id IN (SELECT id FROM person) OR (${personId} = '' AND LOWER(TRIM(name)) = ANY(${names}::text[])) RETURNING id
+        ), visits AS (
+          UPDATE visitor_stays SET name = ${name}, phone = ${phone}, email = ${email}, updated_at = NOW()
+          WHERE person_id IN (SELECT id FROM person) OR (${personId} = '' AND LOWER(TRIM(name)) = ANY(${names}::text[])) RETURNING id
         )
         INSERT INTO support_contacts (id, name, phone, email)
         SELECT ${randomUUID()}, ${name}, ${phone}, ${email} WHERE NOT EXISTS (SELECT 1 FROM contacts)
@@ -1151,6 +1157,37 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return response.status(200).json({ member: { id, name, phone, email, role, weekdays, startTime, endTime, autoAssign } })
     }
 
+    if (action === 'saveVisitorStay') {
+      if (!isOrganizer) return sendError(response, 401, 'Family access is required to add a visit.')
+      const stay = request.body?.stay || {}
+      const id = clean(stay.id, 100) || randomUUID()
+      const personId = clean(stay.personId, 100)
+      const name = clean(stay.name, 120)
+      const phone = clean(stay.phone, 40)
+      const email = clean(stay.email, 200).toLocaleLowerCase()
+      const startDate = clean(stay.startDate, 8)
+      const startTime = clean(stay.startTime, 5)
+      const endDate = clean(stay.endDate, 8)
+      const endTime = clean(stay.endTime, 5)
+      if (!personId || !name || !/^\d{8}$/.test(startDate) || !/^\d{8}$/.test(endDate) || !/^\d{2}:\d{2}$/.test(startTime) || !/^\d{2}:\d{2}$/.test(endTime) || `${endDate}${endTime}` <= `${startDate}${startTime}`) return sendError(response, 400, 'Choose a saved person and valid arrival and departure times.')
+      const people = await sql`SELECT id FROM directory_people WHERE id = ${personId}`
+      if (!people.length) return sendError(response, 404, 'Save this person’s contact details before adding a visit.')
+      await sql`
+        INSERT INTO visitor_stays (id, person_id, name, phone, email, start_date, start_time, end_date, end_time, updated_at)
+        VALUES (${id}, ${personId}, ${name}, ${phone}, ${email}, ${startDate}, ${startTime}, ${endDate}, ${endTime}, NOW())
+        ON CONFLICT (id) DO UPDATE SET person_id = EXCLUDED.person_id, name = EXCLUDED.name, phone = EXCLUDED.phone, email = EXCLUDED.email, start_date = EXCLUDED.start_date, start_time = EXCLUDED.start_time, end_date = EXCLUDED.end_date, end_time = EXCLUDED.end_time, updated_at = NOW()
+      `
+      return response.status(200).json({ stay: { id, personId, name, phone, email, startDate, startTime, endDate, endTime } })
+    }
+
+    if (action === 'deleteVisitorStay') {
+      if (!isOrganizer) return sendError(response, 401, 'Family access is required to remove a visit.')
+      const id = clean(request.body?.id, 100)
+      if (!id) return sendError(response, 400, 'Choose a visit to remove.')
+      await sql`DELETE FROM visitor_stays WHERE id = ${id}`
+      return response.status(200).json({ removed: true, id })
+    }
+
     if (action === 'deleteSupportContact') {
       if (!isOrganizer) return sendError(response, 401, 'Family access is required to remove a saved contact.')
       const personId = clean(request.body?.personId, 100)
@@ -1166,7 +1203,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
           AND NOT EXISTS (SELECT 1 FROM care_team WHERE person_id = ${personId})
           AND NOT EXISTS (SELECT 1 FROM team_events WHERE helper_person_id = ${personId})
           AND NOT EXISTS (SELECT 1 FROM support_requests WHERE person_id = ${personId})
-          AND NOT EXISTS (SELECT 1 FROM availability WHERE person_id = ${personId})`
+          AND NOT EXISTS (SELECT 1 FROM availability WHERE person_id = ${personId})
+          AND NOT EXISTS (SELECT 1 FROM visitor_stays WHERE person_id = ${personId})`
       return response.status(200).json({ removed: true, personId })
     }
 
