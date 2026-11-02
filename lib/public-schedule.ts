@@ -1,11 +1,11 @@
 import { openCareWindows } from './care.js'
-import { buildHelpNeededEvents, careCoverageTitle, simplifyCoveredSchedule } from './schedule.js'
-import type { TeamEvent, FamilyInTown, FamilyInTownDates, CareTeamMember } from './schedule.js'
+import { applyVisitorCoverage, buildHelpNeededEvents, careCoverageTitle, simplifyCoveredSchedule } from './schedule.js'
+import type { TeamEvent, FamilyInTown, FamilyInTownDates, CareTeamMember, VisitorStay } from './schedule.js'
 
 // An explicit allowlist: private event titles, notes, locations, contact IDs and
 // relatives' work/away schedules must never travel to an anonymous browser.
-export function publicSchedule(events: TeamEvent[], careTeam: CareTeamMember[], town: FamilyInTown, dates: FamilyInTownDates): TeamEvent[] {
-  const needs = buildHelpNeededEvents(events, town, dates).map((event) => {
+export function publicSchedule(events: TeamEvent[], careTeam: CareTeamMember[], town: FamilyInTown, dates: FamilyInTownDates, visitorStays: VisitorStay[] = []): TeamEvent[] {
+  const needs = applyVisitorCoverage(buildHelpNeededEvents(events, town, dates), visitorStays).map((event) => {
     if (event.helper || event.requestPending || event.isFlexible || event.helpNeeded.toLowerCase().includes('ride')) return event
     const weekday = new Date(`${event.date.slice(0, 4)}-${event.date.slice(4, 6)}-${event.date.slice(6, 8)}T12:00:00Z`).getUTCDay()
     const member = careTeam.find((person) => person.role !== 'Nurse' && person.autoAssign && person.weekdays.includes(weekday) && event.time >= person.startTime && event.endTime <= person.endTime)
