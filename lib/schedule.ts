@@ -5,7 +5,59 @@ export type TeamEvent = { id: string; category: Category; forWho: ForWho; date: 
 export type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
 export type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
 export type CareTeamMember = { id: string; personId?: string; name: string; phone: string; email: string; role: 'Nurse' | 'Helper'; weekdays: number[]; startTime: string; endTime: string; autoAssign: boolean }
+export type VisitorStay = { id: string; personId: string; name: string; phone: string; email: string; startDate: string; startTime: string; endDate: string; endTime: string }
 const isNoSupport = (value: string) => ['Group event', 'No help needed', 'No help needed, just sharing the schedule'].includes(value)
+
+export function visitorStayDateKeys(stays: VisitorStay[]) {
+  const keys = new Set<string>()
+  for (const stay of stays) {
+    if (!/^\d{8}$/.test(stay.startDate) || !/^\d{8}$/.test(stay.endDate) || stay.endDate < stay.startDate) continue
+    const date = new Date(`${stay.startDate.slice(0, 4)}-${stay.startDate.slice(4, 6)}-${stay.startDate.slice(6, 8)}T12:00:00Z`)
+    for (let count = 0; count < 370; count += 1) {
+      const key = date.toISOString().slice(0, 10).replaceAll('-', '')
+      if (key > stay.endDate) break
+      keys.add(key)
+      date.setUTCDate(date.getUTCDate() + 1)
+    }
+  }
+  return [...keys]
+}
+
+// A visiting friend covers overlapping at-home support. Keep rides open and
+// preserve any uncovered time before arrival or after departure.
+export function applyVisitorCoverage(events: TeamEvent[], stays: VisitorStay[]) {
+  return events.flatMap((event) => {
+    if (event.helper || event.requestPending || event.isFlexible || isNoSupport(event.helpNeeded) || event.helpNeeded.toLowerCase().includes('ride') || !event.endTime) return [event]
+    const dateKey = event.date.slice(0, 8)
+    let windows: TeamEvent[] = [event]
+    for (const stay of stays.filter((item) => item.startDate <= dateKey && item.endDate >= dateKey)) {
+      const stayStart = dateKey === stay.startDate ? stay.startTime : '00:00'
+      const stayEnd = dateKey === stay.endDate ? stay.endTime : '23:59'
+      windows = windows.flatMap((window) => {
+        if (window.helper || stayEnd <= window.time || stayStart >= window.endTime) return [window]
+        const overlapStart = window.time > stayStart ? window.time : stayStart
+        const overlapEnd = window.endTime < stayEnd ? window.endTime : stayEnd
+        const pieces: TeamEvent[] = []
+        if (window.time < overlapStart) pieces.push({ ...window, id: `${window.id}:before:${stay.id}`, endTime: overlapStart })
+        pieces.push({
+          ...window,
+          id: `${window.id}:visitor:${stay.id}`,
+          date: `${dateKey}T${overlapStart.replace(':', '')}00`,
+          time: overlapStart,
+          endTime: overlapEnd,
+          helper: stay.name,
+          helperPhone: stay.phone,
+          helperEmail: stay.email,
+          helperPersonId: stay.personId,
+          scheduleSource: 'visitor_coverage',
+        })
+        if (overlapEnd < window.endTime) pieces.push({ ...window, id: `${window.id}:after:${stay.id}`, date: `${dateKey}T${overlapEnd.replace(':', '')}00`, time: overlapEnd })
+        return pieces
+      })
+    }
+    return windows
+  })
+}
 
 export function careCoverageTitle(name = 'Nurse') {
   const first = name.trim().split(/\s+/)[0] || 'Nurse'
