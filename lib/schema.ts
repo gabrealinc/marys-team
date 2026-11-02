@@ -31,6 +31,14 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
       PRIMARY KEY (person, weekday)
     )
   `
+  await sql`
+    DO $$
+    BEGIN
+      IF to_regclass('public.team_events') IS NOT NULL THEN
+        UPDATE team_events SET for_who = 'Family' WHERE proposal_type = 'food' AND for_who <> 'Family';
+      END IF;
+    END $$
+  `
   if ((await sql`SELECT version FROM app_migrations WHERE version = '20261018-priorities-v1'`).length) return
   await sql`
     CREATE TABLE IF NOT EXISTS team_events (
