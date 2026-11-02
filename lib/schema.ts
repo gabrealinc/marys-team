@@ -21,6 +21,16 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
   `
   await sql`CREATE INDEX IF NOT EXISTS visitor_stays_dates ON visitor_stays(start_date, end_date)`
   await sql`CREATE INDEX IF NOT EXISTS visitor_stays_person ON visitor_stays(person_id)`
+  await sql`
+    CREATE TABLE IF NOT EXISTS family_weekly_hours (
+      person TEXT NOT NULL,
+      weekday INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (person, weekday)
+    )
+  `
   if ((await sql`SELECT version FROM app_migrations WHERE version = '20261018-priorities-v1'`).length) return
   await sql`
     CREATE TABLE IF NOT EXISTS team_events (
@@ -171,6 +181,13 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
       work_date TEXT PRIMARY KEY,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `
+  await sql`
+    INSERT INTO family_weekly_hours (person, weekday, start_time, end_time)
+    SELECT 'Stu', CAST(day AS INTEGER), start_time, end_time
+    FROM stu_work_defaults, UNNEST(STRING_TO_ARRAY(weekdays, ',')) AS day
+    WHERE day <> ''
+    ON CONFLICT (person, weekday) DO NOTHING
   `
   await sql`
     CREATE TABLE IF NOT EXISTS family_work_defaults (
