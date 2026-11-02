@@ -22,6 +22,7 @@ type FoodPreference = { id: string; type: FoodPreferenceType; name: string; item
 type FoodPreferences = { overview: string; avoid: string; suggestions: FoodPreference[] }
 type VisitSettings = { startTime: string; endTime: string }
 type StuWorkDefaults = { weekdays: number[]; startTime: string; endTime: string }
+type WeeklyWorkHour = { weekday: number; startTime: string; endTime: string }
 type FamilyScheduleEntry = { date: string; kind: 'Work' | 'Appointment' | 'Away'; startTime: string; endTime: string }
 type SupportContact = { id: string; personId?: string; familyKey?: string; name: string; phone: string; email: string; source?: 'contact_list' | 'request' }
 
@@ -323,6 +324,8 @@ function App() {
   const [notifications, setNotifications] = useState<EmailNotice[]>([])
   const [templates, setTemplates] = useState<WeekTemplate[]>([])
   const [stuWorkDefaults, setStuWorkDefaults] = useState<StuWorkDefaults>({ weekdays: [1, 2, 3, 4, 5], startTime: '09:00', endTime: '17:00' })
+  const [stuWeeklyHours, setStuWeeklyHours] = useState<WeeklyWorkHour[]>([])
+  const [showStuWeeklyHours, setShowStuWeeklyHours] = useState(false)
   const refreshing = useRef(false)
   const scheduleDates = new Set(getThirtyDays(60).map((day) => day.dateKey))
   const calculatedHelpNeeded = applyCareTeamAssignments(buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates), careTeam)
@@ -366,6 +369,7 @@ function App() {
       setNotifications(data.notifications || [])
       setTemplates(data.templates || [])
       if (data.stuWorkDefaults) setStuWorkDefaults(data.stuWorkDefaults)
+      setStuWeeklyHours(Array.isArray(data.stuWeeklyHours) ? data.stuWeeklyHours : [])
       setVisitSettings(data.visitSettings || { startTime: '10:00', endTime: '17:00' })
       setFamilyInTown(data.familyInTown || { Stu: true, Gabby: true, Spencer: false })
       setFamilyInTownDates(data.familyInTownDates || { Stu: [], Gabby: [], Spencer: [] })
@@ -398,6 +402,7 @@ function App() {
       setNotifications(data.notifications || [])
       setTemplates(data.templates || [])
       if (data.stuWorkDefaults) setStuWorkDefaults(data.stuWorkDefaults)
+      setStuWeeklyHours(Array.isArray(data.stuWeeklyHours) ? data.stuWeeklyHours : [])
       setVisitSettings(data.visitSettings || { startTime: '10:00', endTime: '17:00' })
       setFamilyInTown(data.familyInTown || { Stu: true, Gabby: true, Spencer: false })
       setFamilyInTownDates(data.familyInTownDates || { Stu: [], Gabby: [], Spencer: [] })
@@ -469,6 +474,21 @@ function App() {
       setStuWorkDefaults(result.defaults)
       await refreshData(true)
       setMessage('Stu’s weekly work hours were updated. Individual date changes were kept.')
+      window.setTimeout(() => setMessage(''), 5000)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not update Stu’s weekly work hours.')
+      return false
+    }
+  }
+
+  async function saveStuWeeklyHours(hours: WeeklyWorkHour[]) {
+    try {
+      const result = await apiRequest({ action: 'saveStuWeeklyHours', hours })
+      setStuWeeklyHours(result.hours)
+      await refreshData(true)
+      setShowStuWeeklyHours(false)
+      setMessage('Stu’s weekly work hours were updated. One-time changes were kept.')
       window.setTimeout(() => setMessage(''), 5000)
       return true
     } catch (error) {
@@ -891,7 +911,8 @@ function App() {
       {editingAvailability && <EditAvailabilityModal entries={availability.filter((entry) => samePerson({ ...editingAvailability, email: editingAvailability.email || '' }, { ...entry, email: entry.email || '' }) && allAvailabilityDates.has(entry.day))} initialEntry={editingAvailability} onClose={() => setEditingAvailability(null)} onSave={updateAvailabilities} onRemove={removeAvailabilities} />}
       {showAdd && <AddEventModal initialContact={addContact} initialForWho={addForWho} initialDate={addInitialDate} initialRepeats={addRepeatsByDefault} availability={availability} events={teamEvents} savedContacts={[...careTeam, ...supportContacts]} onClose={() => { setShowAdd(false); setAddContact(undefined); setAddInitialDate(undefined); setAddRepeatsByDefault(false) }} onSave={saveEvents} />}
       {maryCalendarOpen && <MaryCalendarModal events={teamEvents} onClose={() => setMaryCalendarOpen(false)} onAdd={(date) => { setMaryCalendarOpen(false); setAddInitialDate(date); setAddForWho('Mary'); setShowAdd(true) }} onEdit={(event) => { setMaryCalendarOpen(false); setEditingEvent(event) }} />}
-      {familyCalendarOpen && <FamilyCalendarModal events={teamEvents} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onClose={() => setFamilyCalendarOpen(false)} onAdd={(person, date, repeats = false) => { setFamilyCalendarOpen(false); setAddInitialDate(date); setAddRepeatsByDefault(repeats); setAddForWho(person); setShowAdd(true) }} onEdit={(event) => { setFamilyCalendarOpen(false); setEditingEvent(event) }} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={(person) => { setFamilyCalendarOpen(false); setInTownDatesPerson(person) }} />}
+      {familyCalendarOpen && <FamilyCalendarModal events={teamEvents} familyInTown={familyInTown} familyInTownDates={familyInTownDates} onClose={() => setFamilyCalendarOpen(false)} onAdd={(person, date, repeats = false) => { setFamilyCalendarOpen(false); setAddInitialDate(date); setAddRepeatsByDefault(repeats); setAddForWho(person); setShowAdd(true) }} onEditWeeklyHours={(person) => { if (person === 'Stu') { setFamilyCalendarOpen(false); setShowStuWeeklyHours(true) } }} onEdit={(event) => { setFamilyCalendarOpen(false); setEditingEvent(event) }} onSaveFamilyInTown={saveFamilyInTown} onEditInTownDates={(person) => { setFamilyCalendarOpen(false); setInTownDatesPerson(person) }} />}
+      {showStuWeeklyHours && <WeeklyWorkHoursModal person="Stu" hours={stuWeeklyHours.length ? stuWeeklyHours : stuWorkDefaults.weekdays.map((weekday) => ({ weekday, startTime: stuWorkDefaults.startTime, endTime: stuWorkDefaults.endTime }))} onClose={() => setShowStuWeeklyHours(false)} onSave={saveStuWeeklyHours} />}
       {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} inTownDates={familyInTownDates[busyPerson]} livesWithMary={familyInTown[busyPerson]} onClose={() => setBusyPerson(null)} onSave={(entries, dates) => saveFamilyBusyDates(busyPerson, entries, dates)} />}
       {inTownDatesPerson && <FamilyInTownDatesModal person={inTownDatesPerson} selectedDates={familyInTownDates[inTownDatesPerson]} onClose={() => setInTownDatesPerson(null)} onSave={(dates) => saveFamilyInTownDates(inTownDatesPerson, dates)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
@@ -1615,7 +1636,7 @@ function compactEventDate(date: string, time: string) {
   return `${date.replaceAll('-', '')}T${time.replace(':', '')}00`
 }
 
-function FamilyCalendarModal({ events, familyInTown, familyInTownDates, onClose, onAdd, onEdit, onSaveFamilyInTown, onEditInTownDates }: { events: TeamEvent[]; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onClose: () => void; onAdd: (person: ForWho, date: string, repeats?: boolean) => void; onEdit: (event: TeamEvent) => void; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void }) {
+function FamilyCalendarModal({ events, familyInTown, familyInTownDates, onClose, onAdd, onEditWeeklyHours, onEdit, onSaveFamilyInTown, onEditInTownDates }: { events: TeamEvent[]; familyInTown: FamilyInTown; familyInTownDates: FamilyInTownDates; onClose: () => void; onAdd: (person: ForWho, date: string, repeats?: boolean) => void; onEditWeeklyHours: (person: ForWho) => void; onEdit: (event: TeamEvent) => void; onSaveFamilyInTown: (person: keyof FamilyInTown, inTown: boolean) => Promise<void>; onEditInTownDates: (person: keyof FamilyInTown) => void }) {
   const days = getThirtyDays(60)
   const first = days[0].dateKey
   const blanks = new Date(`${first.slice(0, 4)}-${first.slice(4, 6)}-${first.slice(6, 8)}T12:00:00`).getDay()
@@ -1635,7 +1656,7 @@ function FamilyCalendarModal({ events, familyInTown, familyInTownDates, onClose,
     <p className="modal-intro">Choose one person to manage where they are, their regular work hours, and one-time appointments. Tap any date to change that day.</p>
     <div className="family-calendar-tabs" role="tablist" aria-label="Choose a family calendar">{(['Overall', ...familyNames] as const).map((person) => <button role="tab" aria-selected={activePerson === person} className={activePerson === person ? 'active' : ''} type="button" key={person} onClick={() => setActivePerson(person)}>{person}</button>)}</div>
     {activeFamilyMember && <div className="town-status-panel"><div><strong>In town or out of town</strong><p>{familyInTown[activeFamilyMember] ? `${activeFamilyMember} lives with Mary full time. Add an Away item on a specific date when needed.` : `${familyInTownDates[activeFamilyMember].length || 'No'} in-town ${familyInTownDates[activeFamilyMember].length === 1 ? 'date is' : 'dates are'} selected. All other dates are treated as out of town.`}</p></div><label className="town-status-check"><input type="checkbox" checked={familyInTown[activeFamilyMember]} onChange={(event) => void onSaveFamilyInTown(activeFamilyMember, event.target.checked)} /><span>Lives with Mary full time</span></label>{!familyInTown[activeFamilyMember] && <button className="secondary-button compact-button" type="button" onClick={() => onEditInTownDates(activeFamilyMember)}>Choose in-town dates</button>}</div>}
-    {activePerson !== 'Overall' && <div className="regular-hours-summary"><div><strong>{activePerson === 'Mary' ? 'Regular appointments' : 'Regular work hours'}</strong><p>{repeatingSummaries.length ? repeatingSummaries.map((event) => `${event.dayLabel.split(',')[0]} ${eventTimeRangeLabel(event)}`).join(' · ') : `No repeating ${activePerson === 'Mary' ? 'appointments' : 'work hours'} added yet.`}</p></div><button className="secondary-button compact-button" type="button" onClick={() => onAdd(activePerson, inputDate, true)}>+ Add {activePerson === 'Mary' ? 'repeating appointment' : 'work hours'}</button></div>}
+    {activePerson !== 'Overall' && <div className="regular-hours-summary"><div><strong>{activePerson === 'Mary' ? 'Regular appointments' : 'Regular work hours'}</strong><p>{repeatingSummaries.length ? repeatingSummaries.map((event) => `${event.dayLabel.split(',')[0]} ${eventTimeRangeLabel(event)}`).join(' · ') : `No repeating ${activePerson === 'Mary' ? 'appointments' : 'work hours'} added yet.`}</p></div><button className="secondary-button compact-button" type="button" onClick={() => activePerson === 'Stu' ? onEditWeeklyHours(activePerson) : onAdd(activePerson, inputDate, true)}>{activePerson === 'Stu' ? 'Edit weekly hours' : `+ Add ${activePerson === 'Mary' ? 'repeating appointment' : 'work hours'}`}</button></div>}
     <div className="calendar-date-picker family-calendar-picker">
       <div className="date-picker-weekdays">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="date-picker-grid">
@@ -1654,6 +1675,15 @@ function FamilyCalendarModal({ events, familyInTown, familyInTownDates, onClose,
       <div className="family-calendar-add-actions">{(activePerson === 'Overall' ? familyNames : [activePerson]).map((person) => <button className="secondary-button compact-button" type="button" key={person} onClick={() => onAdd(person, inputDate)}>+ {activePerson === 'Overall' ? person : person === 'Mary' ? 'Custom appointment' : 'Custom work, appointment, or away time'}</button>)}</div>
     </div>
   </ModalShell>
+}
+
+function WeeklyWorkHoursModal({ person, hours, onClose, onSave }: { person: 'Stu'; hours: WeeklyWorkHour[]; onClose: () => void; onSave: (hours: WeeklyWorkHour[]) => Promise<boolean> }) {
+  const [rows, setRows] = useState<WeeklyWorkHour[]>(hours)
+  const [saving, setSaving] = useState(false)
+  const rowFor = (weekday: number) => rows.find((row) => row.weekday === weekday)
+  const update = (weekday: number, patch: Partial<WeeklyWorkHour>) => setRows((current) => current.map((row) => row.weekday === weekday ? { ...row, ...patch } : row))
+  const valid = rows.every((row) => row.endTime > row.startTime)
+  return <ModalShell title={`${person}’s weekly work hours`} onClose={onClose}><p className="modal-intro">Set the normal hours for each weekday. Turn off days Stu does not usually work. You can still change any individual date from the family calendar.</p><form onSubmit={async (event) => { event.preventDefault(); if (!valid || saving) return; setSaving(true); const saved = await onSave(rows.sort((a, b) => a.weekday - b.weekday)); if (!saved) setSaving(false) }}><div className="weekly-hours-grid">{weekdayChoices.map((day) => { const row = rowFor(day.value); return <div className={`weekly-hours-row ${row ? 'enabled' : ''}`} key={day.value}><label className="weekly-day-toggle"><input type="checkbox" checked={Boolean(row)} onChange={(event) => setRows((current) => event.target.checked ? [...current, { weekday: day.value, startTime: '10:00', endTime: '17:00' }] : current.filter((item) => item.weekday !== day.value))} /><strong>{day.label}</strong></label>{row ? <div className="weekly-hours-times"><div><label htmlFor={`weekly-start-${day.value}`}>Starts</label><input id={`weekly-start-${day.value}`} type="time" value={row.startTime} onChange={(event) => update(day.value, { startTime: event.target.value })} required /></div><div><label htmlFor={`weekly-end-${day.value}`}>Ends</label><input id={`weekly-end-${day.value}`} type="time" value={row.endTime} onChange={(event) => update(day.value, { endTime: event.target.value })} required /></div></div> : <span className="weekly-day-off">Not working</span>}</div> })}</div>{!valid && <p className="field-error" role="alert">Each ending time must be later than its starting time.</p>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={!valid || saving}><Check aria-hidden="true" /> {saving ? 'Saving…' : 'Save weekly hours'}</button></div></form></ModalShell>
 }
 
 function MaryCalendarModal({ events, onClose, onAdd, onEdit }: { events: TeamEvent[]; onClose: () => void; onAdd: (date: string) => void; onEdit: (event: TeamEvent) => void }) {
