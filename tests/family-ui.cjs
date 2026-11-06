@@ -29,7 +29,7 @@ function load(relative) {
     return orig(id);
   };
   let source = fs.readFileSync(filename, 'utf8');
-  if (relative === 'src/App.tsx') source += '\nexport { MaryCalendarModal, buildPublicScheduleEvents, UpcomingDaysList, EventDetailsModal };';
+  if (relative === 'src/App.tsx') source += '\nexport { MaryCalendarModal, buildPublicScheduleEvents, UpcomingDaysList, EventDetailsModal, ShareModal };';
   m._compile(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2023, jsx: ts.JsxEmit.ReactJSX } }).outputText, filename);
   return m.exports;
 }
@@ -44,6 +44,21 @@ const click = async (label) => {
 const text = () => document.body.textContent;
 const event = { id: 'today', title: 'Today appointment', forWho: 'Mary', category: 'appointment', date: new Date().toISOString().slice(0, 10).replaceAll('-', '') + 'T120000', dayLabel: 'Today', time: '12:00', endTime: '13:00', details: '', helpNeeded: 'No help needed' };
 (async () => {
+  const { ShareModal } = load('src/App.tsx');
+  window.history.replaceState({}, '', '/?approve=private-token#family');
+  let copied;
+  Object.defineProperty(global, 'navigator', { configurable: true, value: { clipboard: { writeText: async value => { copied = value; } } } });
+  await React.act(async () => root.render(React.createElement(ShareModal, { onClose: () => {} })));
+  assert.equal(document.getElementById('share-team-link').value, 'https://marys-team.vercel.app/');
+  await click('Copy link');
+  assert.equal(copied, 'https://marys-team.vercel.app/');
+  assert(text().includes('Link copied!'));
+  navigator.clipboard.writeText = async () => { throw new Error('Clipboard blocked'); };
+  await click('Copy link');
+  assert(text().includes('Select and copy the link above'));
+  assert.equal(document.activeElement.id, 'share-team-link');
+  assert.equal(document.activeElement.selectionEnd, copied.length);
+  window.history.replaceState({}, '', '/');
   let edited; let added;
   await React.act(async () => root.render(React.createElement(MaryCalendarModal, { events: [event, { ...event, id: 'future', title: 'Future appointment', date: '20991101T120000' }], onClose: () => {}, onEdit: value => edited = value, onAdd: value => added = value })));
   assert(text().includes('Today appointment')); assert(!text().includes('Future appointment'));

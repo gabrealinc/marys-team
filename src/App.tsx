@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   CalendarDays, Check, ChevronLeft, ChevronRight, CircleHelp, Clock3, HeartHandshake,
-  ListChecks, Pencil, Repeat2, Trash2, Users, Utensils, X,
+  Copy, ListChecks, Pencil, Repeat2, Share2, Trash2, Users, Utensils, X,
 } from 'lucide-react'
 import './App.css'
 import { EmailStatus } from './FamilyPlanning'
@@ -284,6 +284,7 @@ function App() {
   const [showPlanRequest, setShowPlanRequest] = useState<PlanType | null>(() => new URLSearchParams(window.location.search).get('food') === '1' ? 'food' : null)
   const [planRequestWindow, setPlanRequestWindow] = useState<TeamEvent | null>(null)
   const [showHelp, setShowHelp] = useState(false)
+  const [showShare, setShowShare] = useState(false)
   const [showAdd, setShowAdd] = useState(false)
   const [addInitialDate, setAddInitialDate] = useState<string | undefined>()
   const [addRepeatsByDefault, setAddRepeatsByDefault] = useState(false)
@@ -848,7 +849,7 @@ function App() {
           <button type="button" onClick={showSupportNeeded}><ListChecks aria-hidden="true" /><span>Help Needed</span></button>
           <button type="button" onClick={() => openPlanRequest('food')}><Utensils aria-hidden="true" /><span>Bring Food</span></button>
         </nav>
-        <div className="header-tools"><button className="family-access-button" type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /><span>Edit &amp; Approve</span>{organizer && pendingRequests.length > 0 && <strong aria-label={`${pendingRequests.length} requests waiting`}>{pendingRequests.length}</strong>}</button><button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> <span>How to use this page</span></button></div>
+        <div className="header-tools"><button className="help-button" type="button" aria-label="Share Mary’s Team" onClick={() => setShowShare(true)}><Share2 aria-hidden="true" /><span>Share</span></button><button className="family-access-button" type="button" onClick={openEditAndApprove}><Pencil aria-hidden="true" /><span>Edit &amp; Approve</span>{organizer && pendingRequests.length > 0 && <strong aria-label={`${pendingRequests.length} requests waiting`}>{pendingRequests.length}</strong>}</button><button className="help-button" type="button" onClick={() => setShowHelp(true)}><CircleHelp aria-hidden="true" /> <span>How to use this page</span></button></div>
       </header>
       <main id="top">
         <section className="welcome" aria-labelledby="page-title">
@@ -910,6 +911,7 @@ function App() {
       {showStuWeeklyHours && <WeeklyWorkHoursModal person="Stu" hours={stuWeeklyHours.length ? stuWeeklyHours : stuWorkDefaults.weekdays.map((weekday) => ({ weekday, startTime: stuWorkDefaults.startTime, endTime: stuWorkDefaults.endTime }))} onClose={() => setShowStuWeeklyHours(false)} onSave={saveStuWeeklyHours} />}
       {busyPerson && <FamilyBusyDatesModal person={busyPerson} events={teamEvents} inTownDates={familyInTownDates[busyPerson]} livesWithMary={familyInTown[busyPerson]} onClose={() => setBusyPerson(null)} onSave={(entries, dates) => saveFamilyBusyDates(busyPerson, entries, dates)} />}
       {inTownDatesPerson && <FamilyInTownDatesModal person={inTownDatesPerson} selectedDates={familyInTownDates[inTownDatesPerson]} onClose={() => setInTownDatesPerson(null)} onSave={(dates) => saveFamilyInTownDates(inTownDatesPerson, dates)} />}
+      {showShare && <ShareModal onClose={() => setShowShare(false)} />}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
       {showSupportContact && <SupportContactModal visitorPreferences={visitorPreferences} onClose={() => setShowSupportContact(false)} onSave={saveSupportContact} />}
       {foodConfirmation && <ModalShell title="Your food drop-off request is submitted" onClose={() => setFoodConfirmation(null)}><p>Thank you, {foodConfirmation.name}. You requested {dayLabelForDate(foodConfirmation.date)} at {eventTimeLabel(foodConfirmation.time)}.</p><p><strong>Please wait for confirmation before coming.</strong> We’ll email {foodConfirmation.email} after the family reviews your request, with the address and drop-off instructions. There is no need to text for confirmation or an address.</p><p>Food drop-offs do not include a visit. Please respect any changes or cancellations.</p><GoFundMeHelp /><button className="text-button full-button" type="button" onClick={() => setFoodConfirmation(null)}>Done</button></ModalShell>}
@@ -1050,6 +1052,35 @@ function ModalShell({ title, onClose, children }: { title: string; onClose: () =
     return () => { window.removeEventListener('keydown', keydown); if (previous?.isConnected) previous.focus() }
   }, [])
   return <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section ref={dialog} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><button className="close-button" type="button" onClick={onClose} aria-label="Close"><X aria-hidden="true" /></button><h2 id="modal-title">{title}</h2>{children}</section></div>
+}
+
+function ShareModal({ onClose }: { onClose: () => void }) {
+  const link = 'https://marys-team.vercel.app/'
+  const [status, setStatus] = useState('')
+  const [copying, setCopying] = useState(false)
+  const input = useRef<HTMLInputElement>(null)
+
+  async function copyLink() {
+    setCopying(true)
+    try {
+      await navigator.clipboard.writeText(link)
+      setStatus('Link copied! Paste it into a text or email to share.')
+    } catch {
+      input.current?.focus()
+      input.current?.select()
+      setStatus('Select and copy the link above to share it.')
+    } finally {
+      setCopying(false)
+    }
+  }
+
+  return <ModalShell title="Share Mary’s Team" onClose={onClose}>
+    <p className="modal-intro">Send this link to friends and family so they can see how to help.</p>
+    <label htmlFor="share-team-link">Dashboard link</label>
+    <input ref={input} id="share-team-link" type="url" readOnly value={link} onFocus={(event) => event.currentTarget.select()} />
+    <div className="form-actions"><button className="primary-button" type="button" onClick={copyLink} disabled={copying}><Copy aria-hidden="true" />{copying ? 'Copying…' : 'Copy link'}</button></div>
+    <p role="status" aria-live="polite">{status}</p>
+  </ModalShell>
 }
 
 function SupportContactModal({ visitorPreferences, onClose, onSave }: { visitorPreferences: string; onClose: () => void; onSave: (contact: Omit<SupportContact, 'id'>) => Promise<boolean> }) {
