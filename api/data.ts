@@ -763,6 +763,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
         FROM support_requests
         JOIN team_events ON team_events.id = support_requests.event_id
         WHERE support_requests.status = 'pending'
+          AND SUBSTRING(team_events.event_date, 1, 8) <= '20261231'
         ORDER BY support_requests.created_at ASC
       `
       return response.status(200).json({ requests })
@@ -1517,6 +1518,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       `
       if (!availableEvents.length) return sendError(response, 404, 'This schedule item could not be found.')
       const selectedEvent = availableEvents[0]
+      if (String(selectedEvent.date).slice(0, 8) > '20261231') return sendError(response, 400, 'This schedule is only accepting requests through December.')
       if (isNoSupport(String(selectedEvent.helpNeeded))) return sendError(response, 400, 'This time is not accepting support requests.')
       if (selectedEvent.helper) return sendError(response, 409, 'Someone else has already filled this time.')
       if (!selectedEvent.isFlexible && (!/^\d{2}:\d{2}$/.test(requestStartTime) || !/^\d{2}:\d{2}$/.test(requestEndTime) || requestStartTime < String(selectedEvent.time) || requestEndTime > String(selectedEvent.endTime) || requestEndTime <= requestStartTime)) {
