@@ -888,7 +888,7 @@ function App() {
             <div><p className="eyebrow">Plan together</p><h2 id="schedule-title">Schedule</h2></div>
             <div className="view-toggle" role="group" aria-label="Choose schedule view"><button aria-pressed={view === 'help'} className={view === 'help' ? 'active' : ''} type="button" onClick={() => setView('help')}><ListChecks aria-hidden="true" /> Help Needed</button><button aria-pressed={view === 'upcoming'} className={view === 'upcoming' ? 'active' : ''} type="button" onClick={() => setView('upcoming')}><CalendarDays aria-hidden="true" /> Upcoming</button><button aria-pressed={view === 'month'} className={view === 'month' ? 'active' : ''} type="button" onClick={() => setView('month')}><CalendarDays aria-hidden="true" /> This Month</button></div>
           </div>
-          <p className="schedule-view-note">{view === 'help' ? 'Only times that are still open and need support.' : view === 'upcoming' ? 'Mary’s appointments, food drop-offs, and coverage for the next 10 days.' : 'Mary’s full month at a glance. Tap any date to see appointments, food drop-offs, and coverage.'}</p>
+          <p className="schedule-view-note">{view === 'help' ? 'Only times that are still open and need support.' : view === 'upcoming' ? 'Mary’s appointments, food drop-offs, and coverage for the next 10 days.' : 'Food drop-offs and requested help for the month. Tap a date to see details.'}</p>
           {!loading && (view === 'help' ? <div className="event-list">
             {visibleEvents.length ? visibleEvents.map((event) => {
               const helper = helpers[event.id] || event.helper
