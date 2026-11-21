@@ -850,6 +850,9 @@ function App() {
   function openScheduleEvent(event: TeamEvent) {
     if (event.scheduleSource === 'nurse_coverage') {
       setViewingEvent(event)
+    } else if (event.scheduleSource === 'thanksgiving_food') {
+      if (organizer) setEditingEvent(event)
+      else setSignupEvent(event)
     } else if (event.publicAction) {
       openPlanRequest(event.publicAction, event)
     } else if (organizer && !event.isCalculatedCoverage) {
@@ -1014,7 +1017,7 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
     return {
       date,
       dateKey,
-      events: events.filter((event) => !event.isFlexible && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time)),
+      events: events.filter((event) => (!event.isFlexible || event.scheduleSource === 'thanksgiving_food') && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time)),
       inMonth: date.getMonth() === monthDate.getMonth(),
       isToday: date.getTime() === today.getTime(),
       isPast: date.getTime() < today.getTime(),
@@ -1033,9 +1036,9 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
       <div className="month-weekdays" aria-hidden="true">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="month-grid">{days.map((day) => {
         const label = day.date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-        const openFood = day.events.some((event) => event.publicAction === 'food' && !event.helper && !event.requestPending)
+        const openFood = day.events.some((event) => (event.publicAction === 'food' || event.scheduleSource === 'thanksgiving_food') && !event.helper && !event.requestPending)
         const openRide = day.events.some((event) => event.publicAction !== 'food' && event.helpNeeded.toLowerCase().includes('ride') && !event.helper && !event.requestPending)
-        const openHelp = day.events.some((event) => event.publicAction !== 'food' && !event.helpNeeded.toLowerCase().includes('ride') && !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending)
+        const openHelp = day.events.some((event) => event.publicAction !== 'food' && event.scheduleSource !== 'thanksgiving_food' && !event.helpNeeded.toLowerCase().includes('ride') && !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending)
         const busyCount = day.events.filter((event) => !event.proposalType && !event.publicAction && isNoSupport(event.helpNeeded)).length
         const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
         return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.isPast ? 'past-day' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no schedule items'}`}>
