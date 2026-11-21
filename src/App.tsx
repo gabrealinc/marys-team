@@ -632,6 +632,38 @@ function App() {
       return false
     }
   }
+  async function saveThanksgivingItems(eventIds: string[], name: string, phone: string, email: string, note: string) {
+    try {
+      const selectedEvents = teamEvents.filter((event) => eventIds.includes(event.id))
+      if (!selectedEvents.length) return false
+      const results = await Promise.all(selectedEvents.map((event) => apiRequest({
+        action: 'claimEvent',
+        eventId: event.id,
+        name,
+        phone,
+        email,
+        startTime: event.time,
+        endTime: event.endTime,
+        note,
+      })))
+      const requestedIds = new Set(selectedEvents.map((event) => event.id))
+      setTeamEvents((events) => events.map((event) => requestedIds.has(event.id)
+        ? { ...event, requestPending: true, requesterName: name }
+        : event))
+      window.localStorage.setItem('marys-team-helper-contact', JSON.stringify({ name, phone, email }))
+      setSignupEvent(null)
+      setShowSupportThanks(true)
+      setMessage(results.every((result) => result.status === 'requested')
+        ? `Thank you, ${name}. Your Thanksgiving food request was submitted.`
+        : `Thank you, ${name}. Your Thanksgiving food sign-up was saved.`)
+      window.setTimeout(() => setMessage(''), 6000)
+      return true
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'We could not save every selected item. Please refresh and try again.')
+      await refreshData()
+      return false
+    }
+  }
   async function saveProposedPlan(plan: { type: PlanType; name: string; phone: string; email: string; date: string; time: string; endTime: string; details: string }) {
     try {
       await apiRequest({ action: 'proposePlan', ...plan })
@@ -892,7 +924,9 @@ function App() {
       </main>
       <footer><HeartHandshake aria-hidden="true" /><p><strong>Thank you for being part of Mary’s Team.</strong><br />Please coordinate support through this website and your confirmation email.</p></footer>
       {message && <div className="toast" role="status"><Check aria-hidden="true" /> {message}</div>}
-      {signupEvent && <SignupModal visitorPreferences={visitorPreferences} event={signupEvent} onClose={() => setSignupEvent(null)} onSave={saveHelper} />}
+      {signupEvent && (signupEvent.scheduleSource === 'thanksgiving_food'
+        ? <ThanksgivingSignupModal initialEvent={signupEvent} events={teamEvents.filter((event) => event.scheduleSource === 'thanksgiving_food' && !event.helper && !event.requestPending)} onClose={() => setSignupEvent(null)} onSave={saveThanksgivingItems} />
+        : <SignupModal visitorPreferences={visitorPreferences} event={signupEvent} onClose={() => setSignupEvent(null)} onSave={saveHelper} />)}
       {viewingEvent && <EventDetailsModal onSignUp={() => { setViewingEvent(null); if (viewingEvent.publicAction) openPlanRequest(viewingEvent.publicAction, viewingEvent); else setSignupEvent(viewingEvent) }} event={viewingEvent} organizer={organizer} availability={matchingAvailability(viewingEvent, availability)} onClose={() => setViewingEvent(null)} onEdit={() => { setViewingEvent(null); setEditingEvent(viewingEvent) }} onAssign={() => { setViewingEvent(null); setAssigningEvent(viewingEvent) }} />}
       {assigningEvent && <AssignCoverageModal event={assigningEvent} contacts={knownContacts(teamEvents, availability, [...careTeam.map((member) => ({ personId: member.personId, name: member.name, phone: member.phone, email: member.email })), ...supportContacts.map((contact) => ({ personId: contact.personId, name: contact.name, phone: contact.phone, email: contact.email }))])} onClose={() => setAssigningEvent(null)} onAssign={(contact) => assignCalculatedCoverage(assigningEvent, contact)} />}
       {editingEvent && (editingEvent.id.startsWith('food-open-')
@@ -1402,6 +1436,34 @@ function OrganizerLoginModal({ onClose, onLogin }: { onClose: () => void; onLogi
   }
   return <ModalShell title="Edit & Approve" onClose={onClose}><p className="modal-intro">Enter the family PIN to edit the schedule or approve requests.</p><form onSubmit={submit}><label htmlFor="organizer-pin">Family PIN</label><input id="organizer-pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} autoFocus required />{error && <p className="field-error" role="alert">{error}</p>}<div className="form-actions"><button className="text-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" type="submit" disabled={saving || pin.length < 4}>{saving ? 'Opening…' : 'Open Edit & Approve'}</button></div></form></ModalShell>
 }
+function ThanksgivingSignupModal({ initialEvent, events, onClose, onSave }: { initialEvent: TeamEvent; events: TeamEvent[]; onClose: () => void; onSave: (eventIds: string[], name: string, phone: string, email: string, note: string) => Promise<boolean> }) {
+  const [selectedIds, setSelectedIds] = useState([initialEvent.id])
+  const [contact, setContact] = useState(savedHelperContact)
+  const [note, setNote] = useState('')
+  const [acknowledged, setAcknowledged] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const available = events.some((event) => event.id === initialEvent.id) ? events : [initialEvent, ...events]
+  const toggle = (id: string) => setSelectedIds((ids) => ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id])
+  return <ModalShell title="Choose Thanksgiving food" onClose={onClose}>
+    <div className="modal-summary"><strong>Thursday, November 26</strong><span>Morning drop-off from 9:00 AM to noon</span><p>Select one or several things to bring.</p></div>
+    <form onSubmit={async (event) => {
+      event.preventDefault()
+      if (saving || !selectedIds.length || !acknowledged) return
+      setSaving(true)
+      const saved = await onSave(selectedIds, contact.name.trim(), contact.phone.trim(), contact.email.trim(), note.trim())
+      if (!saved) setSaving(false)
+    }}>
+      <fieldset><legend>What would you like to bring?</legend><div className="food-open-dates">{available.map((event) => <label className="repeat-toggle" key={event.id}><input type="checkbox" checked={selectedIds.includes(event.id)} onChange={() => toggle(event.id)} /><span><strong>{event.title.replace('Thanksgiving food: ', '')}</strong><small>{event.details}</small></span></label>)}</div></fieldset>
+      {!selectedIds.length && <p className="field-error">Choose at least one item.</p>}
+      <label htmlFor="thanksgiving-note">Anything else you would like us to know? <span>(optional)</span></label><textarea id="thanksgiving-note" value={note} onChange={(event) => setNote(event.target.value)} placeholder="Tell us what you plan to bring or add another Thanksgiving favorite." />
+      <label htmlFor="thanksgiving-name">Your name</label><input id="thanksgiving-name" value={contact.name} onChange={(event) => setContact({ ...contact, name: event.target.value })} required autoComplete="name" />
+      <div className="field-row"><div><label htmlFor="thanksgiving-phone">Phone number</label><input id="thanksgiving-phone" type="tel" value={contact.phone} onChange={(event) => setContact({ ...contact, phone: event.target.value })} required autoComplete="tel" /></div><div><label htmlFor="thanksgiving-email">Email address</label><input id="thanksgiving-email" type="email" value={contact.email} onChange={(event) => setContact({ ...contact, email: event.target.value })} required autoComplete="email" /></div></div>
+      <label className="repeat-toggle"><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} required /><span>I will wait for confirmation before bringing food and will respect any schedule changes.</span></label>
+      <div className="form-actions"><button className="text-button" type="button" onClick={onClose} disabled={saving}>Cancel</button><button className="primary-button" type="submit" disabled={saving || !selectedIds.length || !acknowledged}><Check aria-hidden="true" /> {saving ? 'Submitting…' : 'Submit my choices'}</button></div>
+    </form>
+  </ModalShell>
+}
+
 function SignupModal({ visitorPreferences, event, onClose, onSave }: { visitorPreferences: string; event: TeamEvent; onClose: () => void; onSave: (id: string, name: string, phone: string, email: string, startTime: string, endTime: string, note: string) => Promise<boolean> }) {
   const [contact] = useState(savedHelperContact)
   const [name, setName] = useState(contact.name)
