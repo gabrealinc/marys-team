@@ -1,6 +1,6 @@
 type Category = 'appointment' | 'company' | 'home' | 'family'
 type ForWho = 'Mary' | 'Stu' | 'Gabby' | 'Spencer' | 'Coco' | 'Family'
-type PlanType = 'food' | 'stop_by'
+type PlanType = 'food' | 'stop_by' | 'thanksgiving_food'
 export type TeamEvent = { id: string; category: Category; forWho: ForWho; date: string; dayLabel: string; time: string; endTime: string; title: string; details: string; location?: string; helpNeeded: string; helper?: string; helperPhone?: string; helperEmail?: string; helperPersonId?: string; repeatGroupId?: string; requestPending?: boolean; requesterName?: string; scheduleSource?: string; isScheduleException?: boolean; isFlexible?: boolean; proposalType?: PlanType; isCalculatedCoverage?: boolean; publicAction?: PlanType }
 export type FamilyInTown = { Stu: boolean; Gabby: boolean; Spencer: boolean }
 export type FamilyInTownDates = { Stu: string[]; Gabby: string[]; Spencer: string[] }
