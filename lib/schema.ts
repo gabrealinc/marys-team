@@ -68,10 +68,16 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
     `
     await sql`INSERT INTO app_migrations (version) VALUES ('20261120-thanksgiving-food-v2') ON CONFLICT DO NOTHING`
   }
+  async function makeThanksgivingFoodFlexible() {
+    if ((await sql`SELECT version FROM app_migrations WHERE version = '20261120-thanksgiving-food-v3'`).length) return
+    await sql`UPDATE team_events SET event_time = '00:00', end_time = '23:59', is_flexible = TRUE WHERE id = 'thanksgiving-2026-open'`
+    await sql`INSERT INTO app_migrations (version) VALUES ('20261120-thanksgiving-food-v3') ON CONFLICT DO NOTHING`
+  }
   const existingTeamEvents = await sql`SELECT to_regclass('public.team_events') AS "tableName"`
   if (existingTeamEvents[0]?.tableName) {
     await seedThanksgivingFood()
     await simplifyThanksgivingFood()
+    await makeThanksgivingFoodFlexible()
   }
   if ((await sql`SELECT version FROM app_migrations WHERE version = '20261018-priorities-v1'`).length) return
   await sql`
@@ -279,5 +285,6 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
   await sql`CREATE TABLE IF NOT EXISTS schedule_templates (id TEXT PRIMARY KEY, name TEXT NOT NULL, items JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
   await seedThanksgivingFood()
   await simplifyThanksgivingFood()
+  await makeThanksgivingFoodFlexible()
   await sql`INSERT INTO app_migrations (version) VALUES ('20261018-priorities-v1') ON CONFLICT DO NOTHING`
 }
