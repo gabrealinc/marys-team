@@ -13,12 +13,19 @@ export function publicSchedule(events: TeamEvent[], careTeam: CareTeamMember[], 
   }).flatMap((event) => openCareWindows(event, careTeam))
   const timing = (event: TeamEvent) => ({ date: event.date, dayLabel: event.dayLabel, time: event.time, endTime: event.endTime, isFlexible: event.isFlexible })
   const helper = (event: TeamEvent) => event.helper ? event.helper.trim().split(/\s+/)[0] : undefined
-  const output: TeamEvent[] = needs.map((event) => ({
-    id: event.id, ...timing(event), category: event.helpNeeded.toLowerCase().includes('ride') ? 'appointment' : 'home', forWho: 'Mary',
-    title: event.helpNeeded.toLowerCase().includes('ride') ? 'Appointment support' : 'Practical support for Mary',
-    details: event.helpNeeded.toLowerCase().includes('ride') ? 'Provide transportation and stay for the entire appointment. Location and instructions are shared after confirmation.' : 'Provide the practical care or household support requested. Instructions are shared after confirmation.',
-    helpNeeded: event.helpNeeded, helper: helper(event), requestPending: Boolean(event.requestPending),
-  }))
+  const output: TeamEvent[] = needs.map((event) => {
+    if (event.scheduleSource === 'thanksgiving_food') return {
+      id: event.id, ...timing(event), category: 'home', forWho: 'Family',
+      title: event.title, details: event.details, helpNeeded: event.helpNeeded,
+      helper: helper(event), requestPending: Boolean(event.requestPending), scheduleSource: 'thanksgiving_food',
+    }
+    return {
+      id: event.id, ...timing(event), category: event.helpNeeded.toLowerCase().includes('ride') ? 'appointment' : 'home', forWho: 'Mary',
+      title: event.helpNeeded.toLowerCase().includes('ride') ? 'Appointment support' : 'Practical support for Mary',
+      details: event.helpNeeded.toLowerCase().includes('ride') ? 'Provide transportation and stay for the entire appointment. Location and instructions are shared after confirmation.' : 'Provide the practical care or household support requested. Instructions are shared after confirmation.',
+      helpNeeded: event.helpNeeded, helper: helper(event), requestPending: Boolean(event.requestPending),
+    }
+  })
   events.forEach((event, index) => {
     if (event.helpNeeded === 'Group event') output.push({ id: event.id, ...timing(event), category: 'family', forWho: 'Family', title: event.title, details: 'Register using the official event link.', helpNeeded: 'Group event' })
     else if (event.scheduleSource === 'nurse_coverage') {
