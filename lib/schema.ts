@@ -53,8 +53,26 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
     `
     await sql`INSERT INTO app_migrations (version) VALUES ('20261120-thanksgiving-food-v1') ON CONFLICT DO NOTHING`
   }
+  async function simplifyThanksgivingFood() {
+    if ((await sql`SELECT version FROM app_migrations WHERE version = '20261120-thanksgiving-food-v2'`).length) return
+    await sql`
+      DELETE FROM team_events e
+      WHERE e.id IN ('thanksgiving-2026-stuffing', 'thanksgiving-2026-potatoes', 'thanksgiving-2026-turkey', 'thanksgiving-2026-dessert', 'thanksgiving-2026-other')
+        AND COALESCE(e.helper, '') = ''
+        AND NOT EXISTS (SELECT 1 FROM support_requests r WHERE r.event_id = e.id)
+    `
+    await sql`
+      INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, help_needed, for_who, schedule_source)
+      VALUES ('thanksgiving-2026-open', 'home', '20261126T090000', 'Thursday, November 26', '09:00', '12:00', 'Thanksgiving food', 'The family likes turkey, potatoes, stuffing (Stove Top is our favorite), brownies/cookies, and anything else. Choose Wednesday night or Thanksgiving morning and tell us your drop-off time.', 'Food drop-off', 'Family', 'thanksgiving_food')
+      ON CONFLICT (id) DO NOTHING
+    `
+    await sql`INSERT INTO app_migrations (version) VALUES ('20261120-thanksgiving-food-v2') ON CONFLICT DO NOTHING`
+  }
   const existingTeamEvents = await sql`SELECT to_regclass('public.team_events') AS "tableName"`
-  if (existingTeamEvents[0]?.tableName) await seedThanksgivingFood()
+  if (existingTeamEvents[0]?.tableName) {
+    await seedThanksgivingFood()
+    await simplifyThanksgivingFood()
+  }
   if ((await sql`SELECT version FROM app_migrations WHERE version = '20261018-priorities-v1'`).length) return
   await sql`
     CREATE TABLE IF NOT EXISTS team_events (
@@ -260,5 +278,6 @@ export async function migrate(sql: NeonQueryFunction<false, false>) {
   await sql`CREATE INDEX IF NOT EXISTS email_outbox_due ON email_outbox(next_attempt_at) WHERE status IN ('queued', 'retry', 'sending')`
   await sql`CREATE TABLE IF NOT EXISTS schedule_templates (id TEXT PRIMARY KEY, name TEXT NOT NULL, items JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`
   await seedThanksgivingFood()
+  await simplifyThanksgivingFood()
   await sql`INSERT INTO app_migrations (version) VALUES ('20261018-priorities-v1') ON CONFLICT DO NOTHING`
 }
