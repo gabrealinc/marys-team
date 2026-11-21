@@ -1017,7 +1017,13 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
     return {
       date,
       dateKey,
-      events: events.filter((event) => (!event.isFlexible || event.scheduleSource === 'thanksgiving_food') && event.date.startsWith(dateKey)).sort((a, b) => a.time.localeCompare(b.time)),
+      events: events.filter((event) => {
+        if ((!event.isFlexible && !event.date.startsWith(dateKey)) || (event.isFlexible && (event.scheduleSource !== 'thanksgiving_food' || !event.date.startsWith(dateKey)))) return false
+        if (event.scheduleSource === 'nurse_coverage') return false
+        if (event.publicAction === 'food' || event.scheduleSource === 'thanksgiving_food' || event.proposalType === 'food' || event.proposalType === 'thanksgiving_food') return true
+        if (isNoSupport(event.helpNeeded)) return false
+        return !event.helper || !['Mary', 'Stu', 'Gabby', 'Spencer'].includes(event.helper)
+      }).sort((a, b) => a.time.localeCompare(b.time)),
       inMonth: date.getMonth() === monthDate.getMonth(),
       isToday: date.getTime() === today.getTime(),
       isPast: date.getTime() < today.getTime(),
@@ -1039,11 +1045,10 @@ function MonthCalendar({ events, onOpen }: { events: TeamEvent[]; onOpen: (event
         const openFood = day.events.some((event) => (event.publicAction === 'food' || event.scheduleSource === 'thanksgiving_food') && !event.helper && !event.requestPending)
         const openRide = day.events.some((event) => event.publicAction !== 'food' && event.helpNeeded.toLowerCase().includes('ride') && !event.helper && !event.requestPending)
         const openHelp = day.events.some((event) => event.publicAction !== 'food' && event.scheduleSource !== 'thanksgiving_food' && !event.helpNeeded.toLowerCase().includes('ride') && !event.proposalType && !isNoSupport(event.helpNeeded) && !event.helper && !event.requestPending)
-        const busyCount = day.events.filter((event) => !event.proposalType && !event.publicAction && isNoSupport(event.helpNeeded)).length
-        const foodCovered = day.events.some((event) => event.proposalType === 'food' && Boolean(event.helper))
+        const foodCovered = day.events.some((event) => (event.proposalType === 'food' || event.proposalType === 'thanksgiving_food') && Boolean(event.helper))
         return <button className={`month-cell ${day.inMonth ? '' : 'outside-month'} ${day.isToday ? 'today' : ''} ${day.isPast ? 'past-day' : ''} ${day.events.length ? 'has-events' : ''}`} type="button" key={day.dateKey} onClick={() => day.events.length && setSelectedDateKey(day.dateKey)} disabled={!day.events.length} aria-label={`${label}${day.events.length ? `, ${day.events.length} schedule ${day.events.length === 1 ? 'item' : 'items'}` : ', no schedule items'}`}>
           <span className="month-number">{day.date.getDate()}</span>
-          <span className="month-statuses">{openRide && <span className="month-status help">Ride Needed</span>}{openHelp && <span className="month-status help">Help Needed</span>}{openFood && <span className="month-status help">Food Drop-off Available</span>}{busyCount > 0 && <span className="month-status appointment">{busyCount} {busyCount === 1 ? 'Appointment' : 'Appointments'}</span>}{foodCovered && <span className="month-status food">Food Covered</span>}</span>
+          <span className="month-statuses">{openRide && <span className="month-status help">Ride Needed</span>}{openHelp && <span className="month-status help">Help Needed</span>}{openFood && <span className="month-status help">Food Drop-off Available</span>}{foodCovered && <span className="month-status food">Food Covered</span>}</span>
         </button>
       })}</div>
     </div>
