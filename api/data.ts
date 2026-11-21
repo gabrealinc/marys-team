@@ -315,8 +315,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
     async function notifySupportRequest(supportRequest: SupportRequestNotification) {
       const approvalUrl = `https://marys-team.vercel.app/?approve=${encodeURIComponent(String(supportRequest.approvalToken))}`
       const proposalType = String(supportRequest.proposalType || '')
-      const isPlan = proposalType === 'food' || proposalType === 'stop_by'
-      const requestLabel = proposalType === 'food' ? 'food drop-off' : proposalType === 'stop_by' ? 'stop-by' : 'support request'
+      const isPlan = proposalType === 'food' || proposalType === 'thanksgiving_food' || proposalType === 'stop_by'
+      const requestLabel = proposalType === 'food' || proposalType === 'thanksgiving_food' ? 'food drop-off' : proposalType === 'stop_by' ? 'stop-by' : 'support request'
       const emailSent = await notifyOnce(`request:${String(supportRequest.id)}`, {
         subject: `Mary's Team: ${requestLabel} requested by ${String(supportRequest.requesterName)}`,
         heading: isPlan ? 'A proposed plan needs approval' : 'A support request needs approval',
@@ -346,7 +346,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       if (!email) return false
       const approved = decision === 'approve'
       const proposalType = String(supportRequest.proposalType || '')
-      const isPlan = proposalType === 'food' || proposalType === 'stop_by'
+      const isPlan = proposalType === 'food' || proposalType === 'thanksgiving_food' || proposalType === 'stop_by'
       const savedLocation = String(supportRequest.location || '')
       const approvedLocation = proposalType === 'food' || savedLocation.toLocaleLowerCase() === 'home'
         ? (familyHomeAddress || 'Mary and Stu’s home')
@@ -368,7 +368,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       return notifyOnce(`decision:${String(supportRequest.id)}:${decision}`, {
         subject: "Mary's Team: your request was approved",
         heading: 'You are confirmed',
-        intro: `Thank you for being part of Mary’s Team. The family approved your ${proposalType === 'food' ? 'food drop-off. Please leave the food at your selected drop-off location; this does not include a social visit' : 'practical support request. Please provide only the agreed support'}. Please respect any later changes or cancellations.`,
+        intro: `Thank you for being part of Mary’s Team. The family approved your ${proposalType === 'food' || proposalType === 'thanksgiving_food' ? 'food drop-off. Please leave the food at your selected drop-off location; this does not include a social visit' : 'practical support request. Please provide only the agreed support'}. Please respect any later changes or cancellations.`,
         rows: [
           { label: 'Schedule item', value: String(supportRequest.title) },
           { label: 'When', value: Boolean(supportRequest.isFlexible) ? 'Anytime' : `${String(supportRequest.dayLabel)} from ${readableTime(String(supportRequest.requestStartTime || supportRequest.time))} to ${readableTime(String(supportRequest.requestEndTime || supportRequest.endTime))}` },
@@ -1464,6 +1464,41 @@ export default async function handler(request: VercelRequest, response: VercelRe
       `
       if (!rows.length) return sendError(response, 409, 'Someone has already reserved this food date. Please choose another open date.')
       const emailSent = await notifySupportRequest({ id: requestId, approvalToken, requesterName: name, requesterPhone: phone, requesterEmail: email, title, dayLabel, time, endTime, helpNeeded: 'No help needed', details, proposalType: type })
+      return response.status(202).json({ id: requestId, status: 'requested', emailSent })
+    }
+
+    if (action === 'proposeThanksgivingFood') {
+      const name = clean(request.body?.name, 120)
+      const phone = clean(request.body?.phone, 40)
+      const email = clean(request.body?.email, 200).toLocaleLowerCase()
+      const date = clean(request.body?.date, 10)
+      const time = clean(request.body?.time, 5)
+      const submittedDetails = clean(request.body?.details, 1000)
+      if (!name || !phone || !/^\S+@\S+\.\S+$/.test(email)) return sendError(response, 400, 'Please enter your name, phone number, and email address.')
+      if (!submittedDetails) return sendError(response, 400, 'Please tell the family what you are bringing.')
+      if (!['2026-11-25', '2026-11-26'].includes(date) || !/^\d{2}:\d{2}$/.test(time)) return sendError(response, 400, 'Choose Wednesday night or Thanksgiving morning and enter your drop-off time.')
+      if ((date === '2026-11-25' && (time < '15:00' || time > '21:00')) || (date === '2026-11-26' && (time < '07:00' || time > '12:00'))) return sendError(response, 400, 'Choose a time Wednesday evening or Thanksgiving morning.')
+      const [hours, minutes] = time.split(':').map(Number)
+      const endTotal = hours * 60 + minutes + 30
+      const endTime = `${String(Math.floor(endTotal / 60)).padStart(2, '0')}:${String(endTotal % 60).padStart(2, '0')}`
+      const dateKey = date.replaceAll('-', '')
+      const dayLabel = date === '2026-11-25' ? 'Wednesday, November 25' : 'Thursday, November 26'
+      const eventId = randomUUID()
+      const requestId = randomUUID()
+      const approvalToken = randomUUID()
+      const eventDate = `${dateKey}T${time.replace(':', '')}00`
+      const title = 'Thanksgiving food drop-off'
+      const details = `Bringing: ${submittedDetails}`
+      await sql`
+        WITH inserted_event AS (
+          INSERT INTO team_events (id, category, event_date, day_label, event_time, end_time, title, details, help_needed, for_who, is_proposed, proposal_type)
+          VALUES (${eventId}, 'company', ${eventDate}, ${dayLabel}, ${time}, ${endTime}, ${title}, ${details}, 'No help needed', 'Family', TRUE, 'thanksgiving_food')
+          RETURNING id
+        )
+        INSERT INTO support_requests (id, event_id, requester_name, requester_phone, requester_email, approval_token)
+        SELECT ${requestId}, id, ${name}, ${phone}, ${email}, ${approvalToken} FROM inserted_event
+      `
+      const emailSent = await notifySupportRequest({ id: requestId, approvalToken, requesterName: name, requesterPhone: phone, requesterEmail: email, title, dayLabel, time, endTime, helpNeeded: 'No help needed', details, proposalType: 'thanksgiving_food' })
       return response.status(202).json({ id: requestId, status: 'requested', emailSent })
     }
 
