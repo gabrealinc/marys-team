@@ -35,6 +35,7 @@ const availabilityTimes = [
 
 const helpChoices = ['Driving or giving a ride', 'Practical care and household support', 'Home projects or errands', 'Bringing a meal', 'Pet care or errands', 'Anything that would be useful']
 const goFundMeUrl = 'https://www.gofundme.com/f/support-mary-greenberg?cp_src=d'
+const publicScheduleEndDate = '20261231'
 const supportChoices = ['Need a ride', 'Spend time with Mary', 'Support at home or with an errand', 'Help with Coco', 'No help needed']
 const maryAppointmentChoices = ['At Home Appointment', 'Appointment']
 const defaultEventDetails = 'Please sign up through this website and wait for confirmation. No social visits or drop-ins. Thank you for respecting any schedule changes.'
@@ -323,11 +324,11 @@ function App() {
   const [stuWeeklyHours, setStuWeeklyHours] = useState<WeeklyWorkHour[]>([])
   const [showStuWeeklyHours, setShowStuWeeklyHours] = useState(false)
   const refreshing = useRef(false)
-  const scheduleDates = new Set(getThirtyDays(60).map((day) => day.dateKey))
+  const scheduleDates = new Set(getThirtyDays(60).map((day) => day.dateKey).filter((date) => date <= publicScheduleEndDate))
   const calculatedHelpNeeded = applyCareTeamAssignments(buildHelpNeededEvents(teamEvents, familyInTown, familyInTownDates), careTeam)
   const visitorCoveredHelp = applyVisitorCoverage(calculatedHelpNeeded, visitorStays)
   const unavailableFoodDates = [...new Set([...foodReservedDates, ...foodBlockedDates, ...visitorStayDateKeys(visitorStays), '20261126'])]
-  const foodNeeds: TeamEvent[] = getThirtyDays(60).flatMap((day) => {
+  const foodNeeds: TeamEvent[] = getThirtyDays(60).filter((day) => day.dateKey <= publicScheduleEndDate).flatMap((day) => {
     const slots = foodTimeSlots(day.dateKey, foodSettings, unavailableFoodDates, teamEvents)
     const mealLabel = familyMealLabel()
     return slots.length ? [{ id: `food-open-${day.dateKey}`, category: 'home' as const, forWho: 'Family' as const, date: `${day.dateKey}T${slots[0].replace(':', '')}00`, dayLabel: day.fullDay, time: slots[0], endTime: addMinutes(slots[slots.length - 1], 30), title: 'Bring food', details: `${mealLabel} Choose this day to see food preferences, select an available drop-off time, and tell us what you’re bringing. Brief drop-off only; no social visit.`, helpNeeded: 'Food drop-off', publicAction: 'food' as const }]: []
@@ -339,7 +340,7 @@ function App() {
     ...helpFeedEvents.filter((event) => event.publicAction === 'food').slice(0, 6),
   ]
   const publicScheduleEvents = buildPublicScheduleEvents(teamEvents, supportFeedEvents)
-  const monthScheduleEvents = [...publicScheduleEvents, ...helpFeedEvents].filter((event, index, items) => items.findIndex((item) => item.id === event.id && item.date === event.date && item.time === event.time && item.endTime === event.endTime) === index)
+  const monthScheduleEvents = [...publicScheduleEvents, ...helpFeedEvents].filter((event) => event.date.slice(0, 8) <= publicScheduleEndDate).filter((event, index, items) => items.findIndex((item) => item.id === event.id && item.date === event.date && item.time === event.time && item.endTime === event.endTime) === index)
   const familyCalendarEvents = [...teamEvents, ...foodNeeds].filter((event, index, items) => items.findIndex((item) => item.id === event.id) === index)
   const visibleEvents = (view === 'help' ? publicHelpFeedEvents : teamEvents)
     .filter((event) => event.scheduleSource !== 'family_coverage' && (event.isFlexible || scheduleDates.has(event.date.slice(0, 8))))
